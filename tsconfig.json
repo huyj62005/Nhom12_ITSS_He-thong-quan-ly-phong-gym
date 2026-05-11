@@ -1,0 +1,22 @@
+{
+  "files": [],
+  "compilerOptions": {
+    "incremental": true,
+    "target": "ESNext",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "skipLibCheck": true,
+    "strict": true
+  },
+  "references": [
+    {
+      "path": "packages/common"
+    },
+    {
+      "path": "apps/server"
+    },
+    {
+      "path": "apps/client"
+    }
+  ]
+}
