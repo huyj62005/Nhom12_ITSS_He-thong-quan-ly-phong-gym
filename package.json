@@ -16,11 +16,16 @@
     "preview": "vite preview",
     "prepare": "husky"
   },
+  "lint-staged": {
+    "*.{css,js,json,jsx,md,mjs,ts,tsx}": "prettier --write"
+  },
   "dependencies": {
     "react": "^19.2.5",
     "react-dom": "^19.2.5"
   },
   "devDependencies": {
+    "@commitlint/cli": "^21.0.2",
+    "@commitlint/config-conventional": "^21.0.2",
     "@eslint/js": "^10.0.1",
     "@types/node": "^24.12.2",
     "@types/react": "^19.2.14",
