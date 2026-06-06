@@ -1,0 +1,30 @@
+import {
+    IsDateString,
+    IsInt,
+    IsOptional,
+    IsString,
+} from 'class-validator';
+
+export class CreateMemberDto {
+    @IsInt()
+    userId!: number;
+
+    @IsOptional()
+    @IsInt()
+    managedBy!: number;
+
+    @IsString()
+    fullName?: string;
+
+    @IsOptional()
+    @IsString()
+    phone?: string;
+
+    @IsOptional()
+    @IsDateString()
+    dateOfBirth?: Date;
+
+    @IsOptional()
+    @IsString()
+    memberType?: string;
+}
