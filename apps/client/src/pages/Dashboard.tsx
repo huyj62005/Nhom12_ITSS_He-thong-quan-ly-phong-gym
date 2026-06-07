@@ -284,3 +284,14 @@ export const Dashboard: React.FC = () => {
     </DashboardLayout>
   );
 };
+
+
+{/*
+  "totalMembers": 1200,
+  "activeMembers": 850,
+  "newMembers": 50
+  "revenueThisMonth": 50000000,
+  "scheduledSessions": 20,
+  "pendingPayments": 5,
+  "equipmentMaintenance": 2
+*/  }
