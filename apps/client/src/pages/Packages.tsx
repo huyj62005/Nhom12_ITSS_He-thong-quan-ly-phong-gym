@@ -4,9 +4,29 @@ import { mockPackages } from "../data/mockData";
 import { Plus, Edit, Trash2, Check } from "lucide-react";
 import { MembershipPackage } from "../types";
 
+type PackageForm = {
+  name: string;
+  description: string;
+  duration: string;
+  price: string;
+  type: MembershipPackage["type"];
+};
+
+const emptyPackageForm: PackageForm = {
+  name: "",
+  description: "",
+  duration: "",
+  price: "",
+  type: "monthly",
+};
+
 export const Packages: React.FC = () => {
-  const [packages] = useState<MembershipPackage[]>(mockPackages);
+  const [packages, setPackages] = useState<MembershipPackage[]>(mockPackages);
   const [showModal, setShowModal] = useState(false);
+  const [action, setAction] = useState<"add" | "edit">("add");
+  const [selectedPackage, setSelectedPackage] =
+    useState<MembershipPackage | null>(null);
+  const [packageForm, setPackageForm] = useState<PackageForm>(emptyPackageForm);
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat("vi-VN", {
@@ -49,6 +69,74 @@ export const Packages: React.FC = () => {
     }
   };
 
+  const openAddModal = () => {
+    setAction("add");
+    setSelectedPackage(null);
+    setPackageForm(emptyPackageForm);
+    setShowModal(true);
+  };
+
+  const openEditModal = (pkg: MembershipPackage) => {
+    setAction("edit");
+    setSelectedPackage(pkg);
+    setPackageForm({
+      name: pkg.name,
+      description: pkg.description,
+      duration: String(pkg.duration),
+      price: String(pkg.price),
+      type: pkg.type,
+    });
+    setShowModal(true);
+  };
+
+  const closeModal = () => {
+    setShowModal(false);
+    setSelectedPackage(null);
+    setPackageForm(emptyPackageForm);
+  };
+
+  const buildPackagePayload = (
+    id: string,
+    basePackage?: MembershipPackage,
+  ): MembershipPackage => ({
+    id,
+    name: packageForm.name.trim(),
+    description: packageForm.description.trim(),
+    duration: Number(packageForm.duration),
+    price: Number(packageForm.price),
+    type: packageForm.type,
+    features: basePackage?.features ?? [],
+    isActive: basePackage?.isActive ?? true,
+    createdAt: basePackage?.createdAt ?? new Date().toISOString().slice(0, 10),
+  });
+
+  const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    if (action === "edit" && selectedPackage) {
+      const updatedPackage = buildPackagePayload(
+        selectedPackage.id,
+        selectedPackage,
+      );
+
+      setPackages((prev) =>
+        prev.map((pkg) =>
+          pkg.id === selectedPackage.id ? updatedPackage : pkg,
+        ),
+      );
+      closeModal();
+      return;
+    }
+
+    const newPackage = buildPackagePayload(`pkg-${Date.now()}`);
+    setPackages((prev) => [...prev, newPackage]);
+    closeModal();
+  };
+
+  const handleDeletePackage = (id: string) => {
+    setPackages((prev) => prev.filter((pkg) => pkg.id !== id));
+  };
+
   return (
     <DashboardLayout>
       <div className="space-y-6">
@@ -60,7 +148,8 @@ export const Packages: React.FC = () => {
             </p>
           </div>
           <button
-            onClick={() => setShowModal(true)}
+            type="button"
+            onClick={openAddModal}
             className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
           >
             <Plus size={20} />
@@ -86,10 +175,20 @@ export const Packages: React.FC = () => {
                     </span>
                   </div>
                   <div className="flex gap-2">
-                    <button className="text-blue-600 hover:text-blue-800">
+                    <button
+                      type="button"
+                      onClick={() => openEditModal(pkg)}
+                      className="text-blue-600 hover:text-blue-800"
+                      aria-label={`Chỉnh sửa ${pkg.name}`}
+                    >
                       <Edit size={18} />
                     </button>
-                    <button className="text-red-600 hover:text-red-800">
+                    <button
+                      type="button"
+                      onClick={() => handleDeletePackage(pkg.id)}
+                      className="text-red-600 hover:text-red-800"
+                      aria-label={`Xóa ${pkg.name}`}
+                    >
                       <Trash2 size={18} />
                     </button>
                   </div>
@@ -191,10 +290,20 @@ export const Packages: React.FC = () => {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                       <div className="flex items-center justify-end gap-2">
-                        <button className="text-blue-600 hover:text-blue-900">
+                        <button
+                          type="button"
+                          onClick={() => openEditModal(pkg)}
+                          className="text-blue-600 hover:text-blue-900"
+                          aria-label={`Chỉnh sửa ${pkg.name}`}
+                        >
                           <Edit size={18} />
                         </button>
-                        <button className="text-red-600 hover:text-red-900">
+                        <button
+                          type="button"
+                          onClick={() => handleDeletePackage(pkg.id)}
+                          className="text-red-600 hover:text-red-900"
+                          aria-label={`Xóa ${pkg.name}`}
+                        >
                           <Trash2 size={18} />
                         </button>
                       </div>
@@ -211,44 +320,85 @@ export const Packages: React.FC = () => {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 max-w-2xl w-full mx-4">
             <div className="flex items-center justify-between mb-6">
-              <h2 className="text-2xl font-bold">Thêm Gói Tập Mới</h2>
+              <h2 className="text-2xl font-bold">
+                {action === "add" ? "Thêm Gói Tập Mới" : "Chỉnh Sửa Gói Tập"}
+              </h2>
               <button
-                onClick={() => setShowModal(false)}
+                type="button"
+                onClick={closeModal}
                 className="text-gray-500 hover:text-gray-700"
+                aria-label="Đóng"
               >
                 ✕
               </button>
             </div>
 
-            <form className="space-y-4">
+            <form className="space-y-4" onSubmit={handleSubmit}>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label
+                  htmlFor="package-name"
+                  className="block text-sm font-medium text-gray-700 mb-1"
+                >
                   Tên gói
                 </label>
                 <input
+                  id="package-name"
                   type="text"
+                  value={packageForm.name}
+                  onChange={(event) =>
+                    setPackageForm((prev) => ({
+                      ...prev,
+                      name: event.target.value,
+                    }))
+                  }
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                   placeholder="Gói Tháng Premium"
+                  required
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label
+                  htmlFor="package-description"
+                  className="block text-sm font-medium text-gray-700 mb-1"
+                >
                   Mô tả
                 </label>
                 <textarea
+                  id="package-description"
+                  value={packageForm.description}
+                  onChange={(event) =>
+                    setPackageForm((prev) => ({
+                      ...prev,
+                      description: event.target.value,
+                    }))
+                  }
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                   rows={3}
                   placeholder="Mô tả chi tiết về gói tập"
-                ></textarea>
+                  required
+                />
               </div>
 
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label
+                    htmlFor="package-type"
+                    className="block text-sm font-medium text-gray-700 mb-1"
+                  >
                     Loại gói
                   </label>
-                  <select className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                  <select
+                    id="package-type"
+                    value={packageForm.type}
+                    onChange={(event) =>
+                      setPackageForm((prev) => ({
+                        ...prev,
+                        type: event.target.value as MembershipPackage["type"],
+                      }))
+                    }
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
                     <option value="monthly">Tháng</option>
                     <option value="quarterly">Quý</option>
                     <option value="yearly">Năm</option>
@@ -257,23 +407,49 @@ export const Packages: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label
+                    htmlFor="package-duration"
+                    className="block text-sm font-medium text-gray-700 mb-1"
+                  >
                     Thời hạn (ngày)
                   </label>
                   <input
+                    id="package-duration"
                     type="number"
+                    min={1}
+                    value={packageForm.duration}
+                    onChange={(event) =>
+                      setPackageForm((prev) => ({
+                        ...prev,
+                        duration: event.target.value,
+                      }))
+                    }
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                     placeholder="30"
+                    required
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label
+                    htmlFor="package-price"
+                    className="block text-sm font-medium text-gray-700 mb-1"
+                  >
                     Giá (VNĐ)
                   </label>
                   <input
+                    id="package-price"
                     type="number"
+                    min={0}
+                    value={packageForm.price}
+                    onChange={(event) =>
+                      setPackageForm((prev) => ({
+                        ...prev,
+                        price: event.target.value,
+                      }))
+                    }
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                     placeholder="500000"
+                    required
                   />
                 </div>
               </div>
@@ -283,11 +459,11 @@ export const Packages: React.FC = () => {
                   type="submit"
                   className="flex-1 bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 transition-colors"
                 >
-                  Thêm Gói
+                  {action === "add" ? "Thêm Gói" : "Lưu Thay Đổi"}
                 </button>
                 <button
                   type="button"
-                  onClick={() => setShowModal(false)}
+                  onClick={closeModal}
                   className="flex-1 bg-gray-200 text-gray-700 py-2 rounded-lg hover:bg-gray-300 transition-colors"
                 >
                   Hủy

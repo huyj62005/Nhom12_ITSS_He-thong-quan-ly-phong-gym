@@ -1,11 +1,45 @@
 import React, { useState } from "react";
 import { DashboardLayout } from "../components/DashboardLayout";
 import { mockEquipment } from "../data/mockData";
-import { Plus, Wrench, AlertTriangle, CheckCircle } from "lucide-react";
+import {
+  Plus,
+  Wrench,
+  AlertTriangle,
+  CheckCircle,
+  Edit,
+  Trash2,
+} from "lucide-react";
 import { Equipment } from "../types";
 
+type EquipmentForm = {
+  name: string;
+  category: string;
+  purchaseDate: string;
+  lastMaintenance: string;
+  nextMaintenance: string;
+  price: string;
+  status: Equipment["status"];
+};
+
+const emptyEquipmentForm: EquipmentForm = {
+  name: "",
+  category: "",
+  purchaseDate: "",
+  lastMaintenance: "",
+  nextMaintenance: "",
+  price: "",
+  status: "available",
+};
+
 export const EquipmentPage: React.FC = () => {
-  const [equipment] = useState<Equipment[]>(mockEquipment);
+  const [equipment, setEquipment] = useState<Equipment[]>(mockEquipment);
+  const [showModal, setShowModal] = useState(false);
+  const [action, setAction] = useState<"add" | "edit">("add");
+  const [selectedEquipment, setSelectedEquipment] = useState<Equipment | null>(
+    null,
+  );
+  const [equipmentForm, setEquipmentForm] =
+    useState<EquipmentForm>(emptyEquipmentForm);
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat("vi-VN", {
@@ -53,6 +87,75 @@ export const EquipmentPage: React.FC = () => {
     }
   };
 
+  const openAddModal = () => {
+    setAction("add");
+    setSelectedEquipment(null);
+    setEquipmentForm(emptyEquipmentForm);
+    setShowModal(true);
+  };
+
+  const openEditModal = (item: Equipment) => {
+    setAction("edit");
+    setSelectedEquipment(item);
+    setEquipmentForm({
+      name: item.name,
+      category: item.category,
+      purchaseDate: item.purchaseDate,
+      lastMaintenance: item.lastMaintenance ?? "",
+      nextMaintenance: item.nextMaintenance ?? "",
+      price: String(item.cost),
+      status: item.status,
+    });
+    setShowModal(true);
+  };
+
+  const closeModal = () => {
+    setShowModal(false);
+    setSelectedEquipment(null);
+    setEquipmentForm(emptyEquipmentForm);
+  };
+
+  const buildEquipmentPayload = (id: string): Equipment => {
+    const payload: Equipment = {
+      id,
+      name: equipmentForm.name,
+      category: equipmentForm.category,
+      purchaseDate: equipmentForm.purchaseDate,
+      cost: Number(equipmentForm.price),
+      status: equipmentForm.status,
+    };
+
+    if (equipmentForm.lastMaintenance) {
+      payload.lastMaintenance = equipmentForm.lastMaintenance;
+    }
+
+    if (equipmentForm.nextMaintenance) {
+      payload.nextMaintenance = equipmentForm.nextMaintenance;
+    }
+
+    return payload;
+  };
+
+  const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    if (action === "edit" && selectedEquipment) {
+      const updatedEquipment = buildEquipmentPayload(selectedEquipment.id);
+
+      setEquipment((prev) =>
+        prev.map((item) =>
+          item.id === selectedEquipment.id ? updatedEquipment : item,
+        ),
+      );
+      closeModal();
+      return;
+    }
+
+    const newEquipment = buildEquipmentPayload(`eq-${Date.now()}`);
+    setEquipment((prev) => [...prev, newEquipment]);
+    closeModal();
+  };
+
   const availableCount = equipment.filter(
     (e) => e.status === "available",
   ).length;
@@ -71,7 +174,10 @@ export const EquipmentPage: React.FC = () => {
               Quản lý thiết bị và lịch bảo trì
             </p>
           </div>
-          <button className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
+          <button
+            onClick={openAddModal}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+          >
             <Plus size={20} />
             Thêm Thiết Bị
           </button>
@@ -135,6 +241,9 @@ export const EquipmentPage: React.FC = () => {
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
                     Giá Trị
                   </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                    Hành Động
+                  </th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
@@ -180,6 +289,32 @@ export const EquipmentPage: React.FC = () => {
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                       {formatCurrency(item.cost)}
                     </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => openEditModal(item)}
+                          className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                          aria-label={`Chỉnh sửa ${item.name}`}
+                        >
+                          <Edit size={18} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setEquipment((prev) =>
+                              prev.filter(
+                                (equipmentItem) => equipmentItem.id !== item.id,
+                              ),
+                            )
+                          }
+                          className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                          aria-label={`Xóa ${item.name}`}
+                        >
+                          <Trash2 size={18} />
+                        </button>
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -187,6 +322,199 @@ export const EquipmentPage: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {showModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto">
+            <div className="p-6 border-b border-gray-200">
+              <h2 className="text-xl font-bold text-gray-900">
+                {action === "add" ? "Thêm Thiết Bị" : "Chỉnh Sửa Thiết Bị"}
+              </h2>
+            </div>
+
+            <form className="p-6 space-y-4" onSubmit={handleSubmit}>
+              <div>
+                <label
+                  htmlFor="equipment-name"
+                  className="block text-sm font-medium text-gray-700 mb-1"
+                >
+                  Tên thiết bị
+                </label>
+                <input
+                  id="equipment-name"
+                  type="text"
+                  value={equipmentForm.name}
+                  onChange={(event) =>
+                    setEquipmentForm((prev) => ({
+                      ...prev,
+                      name: event.target.value,
+                    }))
+                  }
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  required
+                />
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label
+                    htmlFor="equipment-category"
+                    className="block text-sm font-medium text-gray-700 mb-1"
+                  >
+                    Danh mục
+                  </label>
+                  <select
+                    id="equipment-category"
+                    value={equipmentForm.category}
+                    onChange={(event) =>
+                      setEquipmentForm((prev) => ({
+                        ...prev,
+                        category: event.target.value,
+                      }))
+                    }
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    required
+                  >
+                    <option value="">Chọn danh mục</option>
+                    <option value="Cardio">Cardio</option>
+                    <option value="Strength">Strength</option>
+                    <option value="Free Weights">Free Weights</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="equipment-status"
+                    className="block text-sm font-medium text-gray-700 mb-1"
+                  >
+                    Trạng thái
+                  </label>
+                  <select
+                    id="equipment-status"
+                    value={equipmentForm.status}
+                    onChange={(event) =>
+                      setEquipmentForm((prev) => ({
+                        ...prev,
+                        status: event.target.value as Equipment["status"],
+                      }))
+                    }
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  >
+                    <option value="available">Sẵn sàng</option>
+                    <option value="maintenance">Bảo trì</option>
+                    <option value="broken">Hỏng</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <label
+                    htmlFor="equipment-purchase-date"
+                    className="block text-sm font-medium text-gray-700 mb-1"
+                  >
+                    Ngày mua
+                  </label>
+                  <input
+                    id="equipment-purchase-date"
+                    type="date"
+                    value={equipmentForm.purchaseDate}
+                    onChange={(event) =>
+                      setEquipmentForm((prev) => ({
+                        ...prev,
+                        purchaseDate: event.target.value,
+                      }))
+                    }
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="equipment-last-maintenance"
+                    className="block text-sm font-medium text-gray-700 mb-1"
+                  >
+                    Bảo trì lần cuối
+                  </label>
+                  <input
+                    id="equipment-last-maintenance"
+                    type="date"
+                    value={equipmentForm.lastMaintenance}
+                    onChange={(event) =>
+                      setEquipmentForm((prev) => ({
+                        ...prev,
+                        lastMaintenance: event.target.value,
+                      }))
+                    }
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="equipment-next-maintenance"
+                    className="block text-sm font-medium text-gray-700 mb-1"
+                  >
+                    Bảo trì tiếp theo
+                  </label>
+                  <input
+                    id="equipment-next-maintenance"
+                    type="date"
+                    value={equipmentForm.nextMaintenance}
+                    onChange={(event) =>
+                      setEquipmentForm((prev) => ({
+                        ...prev,
+                        nextMaintenance: event.target.value,
+                      }))
+                    }
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label
+                  htmlFor="equipment-price"
+                  className="block text-sm font-medium text-gray-700 mb-1"
+                >
+                  Giá trị
+                </label>
+                <input
+                  id="equipment-price"
+                  type="number"
+                  min={0}
+                  value={equipmentForm.price}
+                  onChange={(event) =>
+                    setEquipmentForm((prev) => ({
+                      ...prev,
+                      price: event.target.value,
+                    }))
+                  }
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  required
+                />
+              </div>
+
+              <div className="flex justify-end gap-3 pt-4">
+                <button
+                  type="button"
+                  onClick={closeModal}
+                  className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                >
+                  {action === "add" ? "Thêm Thiết Bị" : "Cập Nhật"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </DashboardLayout>
   );
 };
