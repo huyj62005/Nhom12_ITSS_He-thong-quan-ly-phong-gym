@@ -1,44 +1,43 @@
-import React, { useState } from "react";
-import { DashboardLayout } from "../components/DashboardLayout";
-import { mockSchedules } from "../data/mockData";
-import { Plus, Calendar as CalendarIcon, Clock, User } from "lucide-react";
-import { Schedule } from "../types";
-
-const formatDateInputValue = (date: Date) =>
-  date.toISOString().split("T")[0] ?? "";
+import React, { useState } from 'react';
+import { DashboardLayout } from '../components/DashboardLayout';
+import { mockSchedules } from '../data/mockData';
+import { Plus, Calendar as CalendarIcon, Clock, User } from 'lucide-react';
+import { Schedule } from '../types';
+import { useAuth } from '../contexts/AuthContext';
 
 export const Schedules: React.FC = () => {
+  const { user } = useAuth();
   const [schedules] = useState<Schedule[]>(mockSchedules);
   const [selectedDate, setSelectedDate] = useState<string>(
-    formatDateInputValue(new Date()),
+    new Date().toISOString().slice(0, 10)
   );
   const [showModal, setShowModal] = useState(false);
 
   const filteredSchedules = schedules.filter(
-    (schedule) => schedule.date === selectedDate,
+    (schedule) => schedule.date === selectedDate
   );
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case "scheduled":
-        return "bg-blue-100 text-blue-800";
-      case "completed":
-        return "bg-green-100 text-green-800";
-      case "cancelled":
-        return "bg-red-100 text-red-800";
+      case 'scheduled':
+        return 'bg-blue-100 text-blue-800';
+      case 'completed':
+        return 'bg-green-100 text-green-800';
+      case 'cancelled':
+        return 'bg-red-100 text-red-800';
       default:
-        return "bg-gray-100 text-gray-800";
+        return 'bg-gray-100 text-gray-800';
     }
   };
 
   const getStatusText = (status: string) => {
     switch (status) {
-      case "scheduled":
-        return "Đã lên lịch";
-      case "completed":
-        return "Hoàn thành";
-      case "cancelled":
-        return "Đã hủy";
+      case 'scheduled':
+        return 'Đã lên lịch';
+      case 'completed':
+        return 'Hoàn thành';
+      case 'cancelled':
+        return 'Đã hủy';
       default:
         return status;
     }
@@ -46,12 +45,12 @@ export const Schedules: React.FC = () => {
 
   const getTypeText = (type: string) => {
     switch (type) {
-      case "personal":
-        return "Cá nhân";
-      case "pt":
-        return "PT";
-      case "class":
-        return "Lớp học";
+      case 'personal':
+        return 'Cá nhân';
+      case 'pt':
+        return 'PT';
+      case 'class':
+        return 'Lớp học';
       default:
         return type;
     }
@@ -59,14 +58,14 @@ export const Schedules: React.FC = () => {
 
   const getTypeColor = (type: string) => {
     switch (type) {
-      case "personal":
-        return "bg-purple-100 text-purple-800";
-      case "pt":
-        return "bg-orange-100 text-orange-800";
-      case "class":
-        return "bg-indigo-100 text-indigo-800";
+      case 'personal':
+        return 'bg-purple-100 text-purple-800';
+      case 'pt':
+        return 'bg-orange-100 text-orange-800';
+      case 'class':
+        return 'bg-indigo-100 text-indigo-800';
       default:
-        return "bg-gray-100 text-gray-800";
+        return 'bg-gray-100 text-gray-800';
     }
   };
 
@@ -108,7 +107,7 @@ export const Schedules: React.FC = () => {
                 onClick={() => {
                   const date = new Date(selectedDate);
                   date.setDate(date.getDate() - 1);
-                  setSelectedDate(formatDateInputValue(date));
+                  setSelectedDate(date.toISOString().slice(0, 10));
                 }}
                 className="px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
               >
@@ -116,7 +115,7 @@ export const Schedules: React.FC = () => {
               </button>
               <button
                 onClick={() =>
-                  setSelectedDate(formatDateInputValue(new Date()))
+                  setSelectedDate(new Date().toISOString().slice(0, 10))
                 }
                 className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
               >
@@ -126,7 +125,7 @@ export const Schedules: React.FC = () => {
                 onClick={() => {
                   const date = new Date(selectedDate);
                   date.setDate(date.getDate() + 1);
-                  setSelectedDate(formatDateInputValue(date));
+                  setSelectedDate(date.toISOString().slice(0, 10));
                 }}
                 className="px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
               >
@@ -138,10 +137,7 @@ export const Schedules: React.FC = () => {
           <div className="space-y-3">
             {filteredSchedules.length === 0 ? (
               <div className="text-center py-12 text-gray-500">
-                <CalendarIcon
-                  size={48}
-                  className="mx-auto mb-4 text-gray-300"
-                />
+                <CalendarIcon size={48} className="mx-auto mb-4 text-gray-300" />
                 <p>Không có lịch tập nào cho ngày này</p>
               </div>
             ) : (
@@ -155,14 +151,14 @@ export const Schedules: React.FC = () => {
                       <div className="flex items-center gap-3 mb-2">
                         <span
                           className={`px-2 py-1 text-xs font-semibold rounded-full ${getTypeColor(
-                            schedule.type,
+                            schedule.type
                           )}`}
                         >
                           {getTypeText(schedule.type)}
                         </span>
                         <span
                           className={`px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(
-                            schedule.status,
+                            schedule.status
                           )}`}
                         >
                           {getStatusText(schedule.status)}
@@ -188,16 +184,14 @@ export const Schedules: React.FC = () => {
                         )}
                         {schedule.notes && (
                           <div className="flex items-center gap-2">
-                            <span className="text-gray-500">
-                              {schedule.notes}
-                            </span>
+                            <span className="text-gray-500">{schedule.notes}</span>
                           </div>
                         )}
                       </div>
                     </div>
 
                     <div className="flex gap-2">
-                      {schedule.status === "scheduled" && (
+                      {schedule.status === 'scheduled' && (
                         <>
                           <button className="px-3 py-1 text-sm bg-green-50 text-green-700 rounded hover:bg-green-100">
                             Hoàn thành
@@ -232,49 +226,19 @@ export const Schedules: React.FC = () => {
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
                     Hội Viên
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                    Huấn Luyện Viên
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                    Loại
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                    Trạng Thái
-                  </th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
                 {schedules.map((schedule) => (
                   <tr key={schedule.id} className="hover:bg-gray-50">
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {new Date(schedule.date).toLocaleDateString("vi-VN")}
+                      {new Date(schedule.date).toLocaleDateString('vi-VN')}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                       {schedule.startTime} - {schedule.endTime}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                       {schedule.memberName}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {schedule.trainerName || "-"}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span
-                        className={`px-2 py-1 text-xs font-semibold rounded-full ${getTypeColor(
-                          schedule.type,
-                        )}`}
-                      >
-                        {getTypeText(schedule.type)}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span
-                        className={`px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(
-                          schedule.status,
-                        )}`}
-                      >
-                        {getStatusText(schedule.status)}
-                      </span>
                     </td>
                   </tr>
                 ))}
@@ -309,27 +273,31 @@ export const Schedules: React.FC = () => {
                 </select>
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Loại lịch tập
-                </label>
-                <select className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-                  <option value="personal">Tập cá nhân</option>
-                  <option value="pt">Tập với PT</option>
-                  <option value="class">Lớp học</option>
-                </select>
-              </div>
+              {user?.role !== 'trainer' && (
+                <>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Loại lịch tập
+                    </label>
+                    <select className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                      <option value="personal">Tập cá nhân</option>
+                      <option value="pt">Tập với PT</option>
+                      <option value="class">Lớp học</option>
+                    </select>
+                  </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Huấn luyện viên (nếu có)
-                </label>
-                <select className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-                  <option value="">Không chọn</option>
-                  <option>Phạm Minh Tuấn</option>
-                  <option>Võ Thị Mai</option>
-                </select>
-              </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Huấn luyện viên (nếu có)
+                    </label>
+                    <select className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                      <option value="">Không chọn</option>
+                      <option>Phạm Minh Tuấn</option>
+                      <option>Võ Thị Mai</option>
+                    </select>
+                  </div>
+                </>
+              )}
 
               <div className="grid grid-cols-3 gap-4">
                 <div>

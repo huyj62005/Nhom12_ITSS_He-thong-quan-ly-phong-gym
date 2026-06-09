@@ -3,8 +3,10 @@ import {
     PrimaryGeneratedColumn,
     Column,
     OneToMany,
+    CreateDateColumn,
 } from 'typeorm';
 import { MemberPackage } from '../../member-packages/entities/member-package.entity';
+
 @Entity('gym_packages')
 export class GymPackage {
     @PrimaryGeneratedColumn()
@@ -34,8 +36,11 @@ export class GymPackage {
     @Column('text', { nullable: true })
     benefits?: string;
 
-    @Column()
+    @Column({ default: 'active' })
     status?: string;
+
+    @CreateDateColumn({ name: 'created_at' })
+    createdAt?: Date;
 
     @OneToMany(
         () => MemberPackage,

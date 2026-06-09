@@ -123,6 +123,12 @@ export interface Equipment {
   lastMaintenance?: string;
   nextMaintenance?: string;
   cost: number;
+  needsMaintenanceSoon?: boolean;
+  maintenanceState?: {
+    overdue: boolean;
+    dueSoon: boolean;
+    daysUntilMaintenance: number | null;
+  };
 }
 
 // Feedback Types

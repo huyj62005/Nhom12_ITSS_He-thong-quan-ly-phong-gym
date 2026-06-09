@@ -1,9 +1,18 @@
 import {
     IsDateString,
+    IsEnum,
+    IsInt,
     IsNumber,
     IsOptional,
     IsString,
+    Min,
 } from 'class-validator';
+
+export enum EquipmentStatus {
+    AVAILABLE = 'available',
+    MAINTENANCE = 'maintenance',
+    BROKEN = 'broken',
+}
 
 export class CreateEquipmentDto {
     @IsString()
@@ -15,17 +24,43 @@ export class CreateEquipmentDto {
 
     @IsOptional()
     @IsNumber()
+    @Min(1)
     quantity?: number;
 
     @IsOptional()
     @IsString()
     position?: string;
 
-    @IsOptional()
     @IsDateString()
-    purchaseDate?: Date;
+    purchaseDate!: Date;
 
     @IsOptional()
     @IsNumber()
+    @Min(0)
     purchasePrice?: number;
+
+    @IsOptional()
+    @IsNumber()
+    @Min(0)
+    cost?: number;
+
+    @IsOptional()
+    @IsDateString()
+    lastMaintenanceDate?: Date;
+
+    @IsOptional()
+    @IsDateString()
+    lastMaintenance?: Date;
+
+    @IsOptional()
+    @IsDateString()
+    nextMaintenanceDate?: Date;
+
+    @IsOptional()
+    @IsDateString()
+    nextMaintenance?: Date;
+
+    @IsOptional()
+    @IsEnum(EquipmentStatus)
+    status?: EquipmentStatus;
 }

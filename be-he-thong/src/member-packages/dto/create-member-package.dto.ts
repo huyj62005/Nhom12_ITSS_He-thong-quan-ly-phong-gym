@@ -2,6 +2,7 @@ import {
     IsDateString,
     IsInt,
     IsOptional,
+    IsString,
 } from 'class-validator';
 
 export class CreateMemberPackageDto {
@@ -15,9 +16,15 @@ export class CreateMemberPackageDto {
     @IsInt()
     trainerId?: number;
 
+    @IsOptional()
     @IsDateString()
     startDate?: Date;
 
+    @IsOptional()
     @IsDateString()
     endDate?: Date;
+
+    @IsOptional()
+    @IsString()
+    status?: string;
 }
