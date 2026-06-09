@@ -16,6 +16,39 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { ExercisesModule } from './exercises/exercises.module';
 import { WorkoutSessionsModule } from './workout-sessions/workout-sessions.module';
 import { WorkoutExercisesModule } from './workout-exercises/workout-exercises.module';
+import { Equipment } from './equipments/entities/equipment.entity';
+import { Exercise } from './exercises/entities/exercise.entity';
+import { Feedback } from './feedbacks/entities/feedback.entity';
+import { GymPackage } from './gym-packages/entities/gym-package.entity';
+import { MaintenanceLog } from './maintenance-logs/entities/maintenance-log.entity';
+import { MemberPackage } from './member-packages/entities/member-package.entity';
+import { Member } from './members/entities/member.entity';
+import { Notification } from './notifications/entities/notification.entity';
+import { Payment } from './payments/entities/payment.entity';
+import { TrainerProfile } from './trainer-profiles/entities/trainer-profile.entity';
+import { TrainingProgress } from './training-progress/entities/training-progress.entity';
+import { TrainingSchedule } from './training-schedules/entities/training-schedule.entity';
+import { User } from './users/entities/user.entity';
+import { WorkoutExercise } from './workout-exercises/entities/workout-exercise.entity';
+import { WorkoutSession } from './workout-sessions/entities/workout-session.entity';
+
+const typeOrmEntities = [
+  Equipment,
+  Exercise,
+  Feedback,
+  GymPackage,
+  MaintenanceLog,
+  MemberPackage,
+  Member,
+  Notification,
+  Payment,
+  TrainerProfile,
+  TrainingProgress,
+  TrainingSchedule,
+  User,
+  WorkoutExercise,
+  WorkoutSession,
+];
 
 @Module({
   imports: [
@@ -25,17 +58,25 @@ import { WorkoutExercisesModule } from './workout-exercises/workout-exercises.mo
 
     TypeOrmModule.forRootAsync({
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
-        type: 'postgres',
-        url: configService.get<string>('DATABASE_URL'),
+      useFactory: (configService: ConfigService) => {
+        const databaseUrl = configService.get<string>('DATABASE_URL');
+        console.log(
+          `[be-he-thong] TypeORM config: DATABASE_URL=${databaseUrl ? 'present' : 'missing'}, entities=${typeOrmEntities.length}`,
+        );
 
-        ssl: {
-          rejectUnauthorized: false,
-        },
+        return {
+          type: 'postgres',
+          url: databaseUrl,
 
-        autoLoadEntities: true,
-        synchronize: true,
-      }),
+          ssl: {
+            rejectUnauthorized: false,
+          },
+
+          entities: typeOrmEntities,
+          autoLoadEntities: true,
+          synchronize: true,
+        };
+      },
     }),
 
     UsersModule,

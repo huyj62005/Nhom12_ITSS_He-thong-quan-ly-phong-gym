@@ -17,6 +17,11 @@ export class MemberPackagesController {
     return this.memberPackagesService.findAll();
   }
 
+  @Get('member/:memberId')
+  findByMember(@Param('memberId') memberId: string) {
+    return this.memberPackagesService.findByMember(+memberId);
+  }
+
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.memberPackagesService.findOne(+id);

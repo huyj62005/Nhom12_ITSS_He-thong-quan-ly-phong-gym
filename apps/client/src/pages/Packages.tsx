@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { DashboardLayout } from "../components/DashboardLayout";
-import { mockPackages } from "../data/mockData";
+import { useGymData } from "../contexts/GymDataContext";
 import { Plus, Edit, Trash2, Check } from "lucide-react";
 import { MembershipPackage } from "../types";
 
@@ -21,12 +21,13 @@ const emptyPackageForm: PackageForm = {
 };
 
 export const Packages: React.FC = () => {
-  const [packages, setPackages] = useState<MembershipPackage[]>(mockPackages);
+  const { packages, addPackage, updatePackage, deletePackage } = useGymData();
   const [showModal, setShowModal] = useState(false);
   const [action, setAction] = useState<"add" | "edit">("add");
   const [selectedPackage, setSelectedPackage] =
     useState<MembershipPackage | null>(null);
   const [packageForm, setPackageForm] = useState<PackageForm>(emptyPackageForm);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat("vi-VN", {
@@ -110,31 +111,44 @@ export const Packages: React.FC = () => {
     createdAt: basePackage?.createdAt ?? new Date().toISOString().slice(0, 10),
   });
 
-  const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    setIsSubmitting(true);
 
-    if (action === "edit" && selectedPackage) {
-      const updatedPackage = buildPackagePayload(
-        selectedPackage.id,
-        selectedPackage,
-      );
+    try {
+      if (action === "edit" && selectedPackage) {
+        const updatedPackage = buildPackagePayload(
+          selectedPackage.id,
+          selectedPackage,
+        );
 
-      setPackages((prev) =>
-        prev.map((pkg) =>
-          pkg.id === selectedPackage.id ? updatedPackage : pkg,
-        ),
-      );
+        await updatePackage(selectedPackage.id, updatedPackage);
+        closeModal();
+        return;
+      }
+
+      const newPackage = buildPackagePayload(`pkg-${Date.now()}`);
+      await addPackage(newPackage);
       closeModal();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      window.alert(`Không thể lưu gói tập: ${message}`);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleDeletePackage = async (id: string) => {
+    if (!window.confirm("Bạn chắc chắn muốn xóa gói tập này?")) {
       return;
     }
 
-    const newPackage = buildPackagePayload(`pkg-${Date.now()}`);
-    setPackages((prev) => [...prev, newPackage]);
-    closeModal();
-  };
-
-  const handleDeletePackage = (id: string) => {
-    setPackages((prev) => prev.filter((pkg) => pkg.id !== id));
+    try {
+      await deletePackage(id);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      window.alert(`Không thể xóa gói tập: ${message}`);
+    }
   };
 
   return (
@@ -457,9 +471,14 @@ export const Packages: React.FC = () => {
               <div className="flex gap-3 pt-4">
                 <button
                   type="submit"
+                  disabled={isSubmitting}
                   className="flex-1 bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 transition-colors"
                 >
-                  {action === "add" ? "Thêm Gói" : "Lưu Thay Đổi"}
+                  {isSubmitting
+                    ? "Đang lưu..."
+                    : action === "add"
+                      ? "Thêm Gói"
+                      : "Lưu Thay Đổi"}
                 </button>
                 <button
                   type="button"

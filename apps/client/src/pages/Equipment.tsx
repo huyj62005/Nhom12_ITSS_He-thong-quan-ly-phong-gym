@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { DashboardLayout } from "../components/DashboardLayout";
 import { mockEquipment } from "../data/mockData";
 import {
@@ -21,6 +21,24 @@ type EquipmentForm = {
   status: Equipment["status"];
 };
 
+type ApiEquipment = {
+  id: number | string;
+  name?: string;
+  category?: string;
+  status?: string;
+  purchaseDate?: string;
+  lastMaintenance?: string;
+  lastMaintenanceDate?: string;
+  nextMaintenance?: string;
+  nextMaintenanceDate?: string;
+  cost?: number | string;
+  purchasePrice?: number | string;
+  needsMaintenanceSoon?: boolean;
+  maintenanceState?: Equipment["maintenanceState"];
+};
+
+const API_BASE_URL = "http://localhost:3000";
+
 const emptyEquipmentForm: EquipmentForm = {
   name: "",
   category: "",
@@ -40,6 +58,72 @@ export const EquipmentPage: React.FC = () => {
   );
   const [equipmentForm, setEquipmentForm] =
     useState<EquipmentForm>(emptyEquipmentForm);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const requestJson = async <T,>(
+    path: string,
+    options?: RequestInit,
+  ): Promise<T> => {
+    const response = await fetch(`${API_BASE_URL}${path}`, {
+      ...options,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+      },
+    });
+    const responseText = await response.text();
+
+    if (!response.ok) {
+      throw new Error(responseText || `Request failed with ${response.status}`);
+    }
+
+    return responseText ? (JSON.parse(responseText) as T) : (undefined as T);
+  };
+
+  const normalizeStatus = (status?: string): Equipment["status"] => {
+    return status === "maintenance" || status === "broken"
+      ? status
+      : "available";
+  };
+
+  const mapApiEquipment = (item: ApiEquipment): Equipment => ({
+    id: String(item.id),
+    name: item.name ?? "",
+    category: item.category ?? "",
+    status: normalizeStatus(item.status),
+    purchaseDate: item.purchaseDate ?? "",
+    lastMaintenance: item.lastMaintenance ?? item.lastMaintenanceDate,
+    nextMaintenance: item.nextMaintenance ?? item.nextMaintenanceDate,
+    cost: Number(item.cost ?? item.purchasePrice ?? 0),
+    needsMaintenanceSoon: item.needsMaintenanceSoon,
+    maintenanceState: item.maintenanceState,
+  });
+
+  const toApiEquipmentPayload = (item: Equipment) => ({
+    name: item.name,
+    category: item.category,
+    purchaseDate: item.purchaseDate,
+    lastMaintenance: item.lastMaintenance,
+    nextMaintenance: item.nextMaintenance,
+    purchasePrice: item.cost,
+    status: item.status,
+  });
+
+  useEffect(() => {
+    let isMounted = true;
+
+    requestJson<ApiEquipment[]>("/equipments")
+      .then((apiEquipment) => {
+        if (isMounted) {
+          setEquipment(apiEquipment.map(mapApiEquipment));
+        }
+      })
+      .catch(() => undefined);
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat("vi-VN", {
@@ -48,12 +132,30 @@ export const EquipmentPage: React.FC = () => {
     }).format(amount);
   };
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
+  const isMaintenanceDueSoon = (item: Equipment) => {
+    if (item.status !== "available") return false;
+    if (item.needsMaintenanceSoon) return true;
+    if (!item.nextMaintenance) return false;
+
+    const today = new Date(new Date().toISOString().slice(0, 10));
+    const nextMaintenance = new Date(item.nextMaintenance);
+    const daysUntilMaintenance = Math.ceil(
+      (nextMaintenance.getTime() - today.getTime()) / (1000 * 60 * 60 * 24),
+    );
+
+    return daysUntilMaintenance >= 0 && daysUntilMaintenance <= 7;
+  };
+
+  const getStatusColor = (item: Equipment) => {
+    if (isMaintenanceDueSoon(item)) {
+      return "bg-yellow-100 text-yellow-800";
+    }
+
+    switch (item.status) {
       case "available":
         return "bg-green-100 text-green-800";
       case "maintenance":
-        return "bg-yellow-100 text-yellow-800";
+        return "bg-red-100 text-red-800";
       case "broken":
         return "bg-red-100 text-red-800";
       default:
@@ -61,8 +163,12 @@ export const EquipmentPage: React.FC = () => {
     }
   };
 
-  const getStatusText = (status: string) => {
-    switch (status) {
+  const getStatusText = (item: Equipment) => {
+    if (isMaintenanceDueSoon(item)) {
+      return "Cần bảo trì";
+    }
+
+    switch (item.status) {
       case "available":
         return "Sẵn sàng";
       case "maintenance":
@@ -74,12 +180,16 @@ export const EquipmentPage: React.FC = () => {
     }
   };
 
-  const getStatusIcon = (status: string) => {
-    switch (status) {
+  const getStatusIcon = (item: Equipment) => {
+    if (isMaintenanceDueSoon(item)) {
+      return <AlertTriangle size={20} className="text-yellow-600" />;
+    }
+
+    switch (item.status) {
       case "available":
         return <CheckCircle size={20} className="text-green-600" />;
       case "maintenance":
-        return <Wrench size={20} className="text-yellow-600" />;
+        return <Wrench size={20} className="text-red-600" />;
       case "broken":
         return <AlertTriangle size={20} className="text-red-600" />;
       default:
@@ -118,8 +228,8 @@ export const EquipmentPage: React.FC = () => {
   const buildEquipmentPayload = (id: string): Equipment => {
     const payload: Equipment = {
       id,
-      name: equipmentForm.name,
-      category: equipmentForm.category,
+      name: equipmentForm.name.trim(),
+      category: equipmentForm.category.trim(),
       purchaseDate: equipmentForm.purchaseDate,
       cost: Number(equipmentForm.price),
       status: equipmentForm.status,
@@ -136,24 +246,63 @@ export const EquipmentPage: React.FC = () => {
     return payload;
   };
 
-  const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    setIsSubmitting(true);
 
-    if (action === "edit" && selectedEquipment) {
-      const updatedEquipment = buildEquipmentPayload(selectedEquipment.id);
+    try {
+      if (action === "edit" && selectedEquipment) {
+        const updatedEquipment = buildEquipmentPayload(selectedEquipment.id);
+        const apiEquipment = await requestJson<ApiEquipment>(
+          `/equipments/${selectedEquipment.id}`,
+          {
+            method: "PATCH",
+            body: JSON.stringify(toApiEquipmentPayload(updatedEquipment)),
+          },
+        );
 
-      setEquipment((prev) =>
-        prev.map((item) =>
-          item.id === selectedEquipment.id ? updatedEquipment : item,
-        ),
-      );
+        const savedEquipment = mapApiEquipment(apiEquipment);
+        setEquipment((prev) =>
+          prev.map((item) =>
+            item.id === selectedEquipment.id ? savedEquipment : item,
+          ),
+        );
+        closeModal();
+        return;
+      }
+
+      const newEquipment = buildEquipmentPayload(`eq-${Date.now()}`);
+      const apiEquipment = await requestJson<ApiEquipment>("/equipments", {
+        method: "POST",
+        body: JSON.stringify(toApiEquipmentPayload(newEquipment)),
+      });
+
+      setEquipment((prev) => [...prev, mapApiEquipment(apiEquipment)]);
       closeModal();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      window.alert(`Không thể lưu thiết bị: ${message}`);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleDeleteEquipment = async (id: string) => {
+    if (!window.confirm("Bạn chắc chắn muốn xóa thiết bị này?")) {
       return;
     }
 
-    const newEquipment = buildEquipmentPayload(`eq-${Date.now()}`);
-    setEquipment((prev) => [...prev, newEquipment]);
-    closeModal();
+    try {
+      await requestJson<{ deleted: boolean }>(`/equipments/${id}`, {
+        method: "DELETE",
+      });
+      setEquipment((prev) =>
+        prev.filter((equipmentItem) => equipmentItem.id !== id),
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      window.alert(`Không thể xóa thiết bị: ${message}`);
+    }
   };
 
   const availableCount = equipment.filter(
@@ -193,8 +342,8 @@ export const EquipmentPage: React.FC = () => {
           </div>
           <div className="bg-white rounded-lg shadow p-6">
             <div className="flex items-center justify-between mb-2">
-              <p className="text-gray-600">Đang bảo trì</p>
-              <Wrench className="text-yellow-600" size={24} />
+              <p className="text-red-600">Đang bảo trì</p>
+              <Wrench className="text-red-600" size={24} />
             </div>
             <p className="text-3xl font-bold text-gray-900">
               {maintenanceCount}
@@ -251,7 +400,7 @@ export const EquipmentPage: React.FC = () => {
                   <tr key={item.id} className="hover:bg-gray-50">
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex items-center gap-3">
-                        {getStatusIcon(item.status)}
+                        {getStatusIcon(item)}
                         <span className="font-medium text-gray-900">
                           {item.name}
                         </span>
@@ -262,11 +411,12 @@ export const EquipmentPage: React.FC = () => {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <span
-                        className={`px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(
-                          item.status,
-                        )}`}
+                        className={`inline-flex items-center gap-1 px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(item)}`}
                       >
-                        {getStatusText(item.status)}
+                        {isMaintenanceDueSoon(item) && (
+                          <AlertTriangle size={12} className="text-yellow-600" />
+                        )}
+                        {getStatusText(item)}
                       </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
@@ -301,13 +451,7 @@ export const EquipmentPage: React.FC = () => {
                         </button>
                         <button
                           type="button"
-                          onClick={() =>
-                            setEquipment((prev) =>
-                              prev.filter(
-                                (equipmentItem) => equipmentItem.id !== item.id,
-                              ),
-                            )
-                          }
+                          onClick={() => handleDeleteEquipment(item.id)}
                           className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
                           aria-label={`Xóa ${item.name}`}
                         >
@@ -506,9 +650,14 @@ export const EquipmentPage: React.FC = () => {
                 </button>
                 <button
                   type="submit"
+                  disabled={isSubmitting}
                   className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
                 >
-                  {action === "add" ? "Thêm Thiết Bị" : "Cập Nhật"}
+                  {isSubmitting
+                    ? "Đang lưu..."
+                    : action === "add"
+                      ? "Thêm Thiết Bị"
+                      : "Cập Nhật"}
                 </button>
               </div>
             </form>

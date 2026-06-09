@@ -18,7 +18,10 @@ export class MemberPackage {
     @JoinColumn({ name: 'member_id' })
     member?: Member;
 
-    @ManyToOne(() => GymPackage)
+    @ManyToOne(() => GymPackage, {
+        nullable: true,
+        onDelete: 'SET NULL',
+    })
     @JoinColumn({ name: 'package_id' })
     package?: GymPackage;
 
@@ -43,4 +46,43 @@ export class MemberPackage {
 
     @Column()
     status?: string;
+
+    @Column({
+        name: 'package_name_snapshot',
+        nullable: true,
+    })
+    packageNameSnapshot?: string;
+
+    @Column({
+        name: 'package_type_snapshot',
+        nullable: true,
+    })
+    packageTypeSnapshot?: string;
+
+    @Column({
+        name: 'package_price_snapshot',
+        type: 'decimal',
+        precision: 12,
+        scale: 2,
+        nullable: true,
+    })
+    packagePriceSnapshot?: number;
+
+    @Column({
+        name: 'package_duration_days_snapshot',
+        nullable: true,
+    })
+    packageDurationDaysSnapshot?: number;
+
+    @Column('text', {
+        name: 'package_description_snapshot',
+        nullable: true,
+    })
+    packageDescriptionSnapshot?: string;
+
+    @Column('text', {
+        name: 'package_benefits_snapshot',
+        nullable: true,
+    })
+    packageBenefitsSnapshot?: string;
 }
