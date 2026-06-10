@@ -1,21 +1,11 @@
-import {
-    IsInt,
-    IsOptional,
-    IsString,
-} from 'class-validator';
-
 export class CreateFeedbackDto {
-    @IsInt()
-    memberId!: number;
+  memberId!: number;
 
-    @IsOptional()
-    @IsString()
-    title?: string;
-
-    @IsString()
-    content?: string;
-
-    @IsOptional()
-    @IsString()
-    category?: string;
+  title?: string;
+  content!: string;
+  category?: string;
+  priority?: string;
+  status?: string;
+  adminReply?: string;
+  resolvedAt?: Date;
 }

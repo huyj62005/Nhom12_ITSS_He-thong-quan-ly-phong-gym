@@ -1,28 +1,25 @@
-import {
-    IsDateString,
-    IsInt,
-    IsOptional,
-    IsString,
-} from 'class-validator';
+import { IsDateString, IsInt, IsOptional, IsString } from 'class-validator';
 
 export class CreateTrainingScheduleDto {
-    @IsOptional()
-    @IsInt()
-    memberPackageId?: number;
+  @IsOptional()
+  @IsInt()
+  memberPackageId?: number;
 
-    @IsInt()
-    memberId!: number;
+  @IsInt()
+  memberId!: number;
 
-    @IsOptional()
-    @IsInt()
-    trainerId?: number;
+  @IsOptional()
+  @IsInt()
+  trainerId?: number;
 
-    @IsString()
-    type?: string;
+  @IsString()
+  type?: string;
 
-    @IsDateString()
-    startTime?: Date;
+  @IsDateString()
+  startTime?: Date;
 
-    @IsDateString()
-    endTime?: Date;
+  @IsDateString()
+  endTime?: Date;
+
+  status?: string;
 }

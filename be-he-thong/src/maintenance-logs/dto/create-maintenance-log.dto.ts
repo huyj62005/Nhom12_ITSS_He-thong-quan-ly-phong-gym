@@ -1,23 +1,26 @@
 import {
-    IsDateString,
-    IsInt,
-    IsNumber,
-    IsOptional,
-    IsString,
+  IsDateString,
+  IsInt,
+  IsNumber,
+  IsOptional,
+  IsString,
 } from 'class-validator';
 
 export class CreateMaintenanceLogDto {
-    @IsInt()
-    equipmentId!: number;
+  @IsInt()
+  equipmentId!: number;
 
-    @IsDateString()
-    maintenanceDate?: Date;
+  @IsDateString()
+  maintenanceDate?: Date;
 
-    @IsOptional()
-    @IsString()
-    description?: string;
+  @IsOptional()
+  @IsString()
+  description?: string;
 
-    @IsOptional()
-    @IsNumber()
-    cost?: number;
+  @IsOptional()
+  @IsNumber()
+  cost?: number;
+
+  @IsString()
+  status?: string;
 }

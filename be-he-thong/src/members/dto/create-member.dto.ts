@@ -1,30 +1,17 @@
-import {
-    IsDateString,
-    IsInt,
-    IsOptional,
-    IsString,
-} from 'class-validator';
-
 export class CreateMemberDto {
-    @IsInt()
-    userId!: number;
+  userId!: number;
 
-    @IsOptional()
-    @IsInt()
-    managedBy!: number;
+  managerId?: number;
 
-    @IsString()
-    fullName?: string;
+  fullName!: string;
 
-    @IsOptional()
-    @IsString()
-    phone?: string;
+  phone?: string;
 
-    @IsOptional()
-    @IsDateString()
-    dateOfBirth?: Date;
+  dateOfBirth?: Date;
 
-    @IsOptional()
-    @IsString()
-    memberType?: string;
+  memberType?: string;
+
+  joinDate!: Date;
+
+  status!: string;
 }

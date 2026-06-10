@@ -1,26 +1,53 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { Exercise } from './entities/exercise.entity';
 import { CreateExerciseDto } from './dto/create-exercise.dto';
 import { UpdateExerciseDto } from './dto/update-exercise.dto';
 
 @Injectable()
-export class ExercisesService {
-  create(createExerciseDto: CreateExerciseDto) {
-    return 'This action adds a new exercise';
+export class ExerciseService {
+  constructor(
+    @InjectRepository(Exercise)
+    private readonly exerciseRepository: Repository<Exercise>,
+  ) {}
+
+  async create(createDto: CreateExerciseDto) {
+    const exercise = this.exerciseRepository.create(createDto);
+    return this.exerciseRepository.save(exercise);
   }
 
-  findAll() {
-    return `This action returns all exercises`;
+  async findAll() {
+    return this.exerciseRepository.find();
   }
 
-  findOne(id: number) {
-    return `This action returns a #${id} exercise`;
+  async findOne(id: number) {
+    const exercise = await this.exerciseRepository.findOne({
+      where: { id },
+    });
+
+    if (!exercise) {
+      throw new NotFoundException('Exercise not found');
+    }
+
+    return exercise;
   }
 
-  update(id: number, updateExerciseDto: UpdateExerciseDto) {
-    return `This action updates a #${id} exercise`;
+  async update(id: number, updateDto: UpdateExerciseDto) {
+    await this.findOne(id);
+
+    await this.exerciseRepository.update(id, updateDto);
+
+    return this.findOne(id);
   }
 
-  remove(id: number) {
-    return `This action removes a #${id} exercise`;
+  async remove(id: number) {
+    const exercise = await this.findOne(id);
+
+    await this.exerciseRepository.remove(exercise);
+
+    return {
+      message: 'Exercise deleted successfully',
+    };
   }
 }
