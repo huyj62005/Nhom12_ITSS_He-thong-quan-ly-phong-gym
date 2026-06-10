@@ -13,11 +13,27 @@ import { Reports } from "../pages/Reports";
 import { Progress } from "../pages/Progress";
 import { Settings } from "../pages/Settings";
 import { Unauthorized } from "../pages/Unauthorized";
+import { useAuth } from "../contexts/AuthContext";
+
+const DefaultRedirect = () => {
+  const { isAuthenticated, user } = useAuth();
+
+  if (!isAuthenticated) {
+    return <Navigate to="/login" replace />;
+  }
+
+  return (
+    <Navigate
+      to={user?.role === "manager" || user?.role === "cashier" ? "/reports" : "/dashboard"}
+      replace
+    />
+  );
+};
 
 export const router = createBrowserRouter([
   {
     path: "/",
-    element: <Navigate to="/dashboard" replace />,
+    element: <DefaultRedirect />,
   },
   {
     path: "/login",
@@ -30,7 +46,7 @@ export const router = createBrowserRouter([
   {
     path: "/dashboard",
     element: (
-      <ProtectedRoute>
+      <ProtectedRoute allowedRoles={["admin", "trainer", "member"]}>
         <Dashboard />
       </ProtectedRoute>
     ),
@@ -38,7 +54,7 @@ export const router = createBrowserRouter([
   {
     path: "/members",
     element: (
-      <ProtectedRoute allowedRoles={["admin", "manager"]}>
+      <ProtectedRoute allowedRoles={["admin", "manager", "cashier"]}>
         <Members />
       </ProtectedRoute>
     ),
@@ -46,7 +62,7 @@ export const router = createBrowserRouter([
   {
     path: "/packages",
     element: (
-      <ProtectedRoute allowedRoles={["admin", "manager"]}>
+      <ProtectedRoute allowedRoles={["admin", "manager", "cashier"]}>
         <Packages />
       </ProtectedRoute>
     ),
@@ -62,7 +78,7 @@ export const router = createBrowserRouter([
   {
     path: "/schedules",
     element: (
-      <ProtectedRoute allowedRoles={["admin", "manager", "trainer", "member"]}>
+      <ProtectedRoute allowedRoles={["admin", "manager", "cashier", "trainer", "member"]}>
         <Schedules />
       </ProtectedRoute>
     ),
@@ -70,7 +86,7 @@ export const router = createBrowserRouter([
   {
     path: "/trainers",
     element: (
-      <ProtectedRoute allowedRoles={["admin", "manager"]}>
+      <ProtectedRoute allowedRoles={["admin", "manager", "cashier"]}>
         <Trainers />
       </ProtectedRoute>
     ),
@@ -86,7 +102,7 @@ export const router = createBrowserRouter([
   {
     path: "/equipment",
     element: (
-      <ProtectedRoute allowedRoles={["admin", "manager"]}>
+      <ProtectedRoute allowedRoles={["admin", "manager", "cashier"]}>
         <EquipmentPage />
       </ProtectedRoute>
     ),
@@ -94,7 +110,7 @@ export const router = createBrowserRouter([
   {
     path: "/feedback",
     element: (
-      <ProtectedRoute allowedRoles={["admin", "manager", "member"]}>
+      <ProtectedRoute allowedRoles={["admin", "manager", "cashier", "member"]}>
         <FeedbackPage />
       </ProtectedRoute>
     ),
@@ -102,7 +118,7 @@ export const router = createBrowserRouter([
   {
     path: "/reports",
     element: (
-      <ProtectedRoute allowedRoles={["admin", "manager"]}>
+      <ProtectedRoute allowedRoles={["admin", "manager", "cashier"]}>
         <Reports />
       </ProtectedRoute>
     ),
@@ -117,6 +133,6 @@ export const router = createBrowserRouter([
   },
   {
     path: "*",
-    element: <Navigate to="/dashboard" replace />,
+    element: <DefaultRedirect />,
   },
 ]);

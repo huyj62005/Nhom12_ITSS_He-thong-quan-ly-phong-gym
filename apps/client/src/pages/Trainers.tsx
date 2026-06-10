@@ -1,6 +1,5 @@
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { DashboardLayout } from "../components/DashboardLayout";
-import { mockTrainers } from "../data/mockData";
 import {
   Briefcase,
   Edit,
@@ -12,7 +11,7 @@ import {
   Upload,
   X,
 } from "lucide-react";
-import { Trainer } from "../types";
+import { useAuth } from "../contexts/AuthContext";
 
 type StaffType = "manager" | "trainer";
 type StaffStatus = "active" | "inactive";
@@ -56,40 +55,98 @@ const emptyForm: StaffFormData = {
   avatarUrl: "",
 };
 
-const managerStaff: StaffMember[] = [
-  {
-    id: "staff-1",
-    userId: "manager-1",
-    name: "Nguyen Thanh Ha",
-    email: "ha.nguyen@gym.com",
-    phone: "0901112233",
-    dateOfBirth: "1990-04-12",
-    gender: "female",
-    address: "Quan 1, TP.HCM",
-    staffType: "manager",
-    specialization: "Quan ly van hanh",
-    experience: 6,
-    description: "Phu trach dieu phoi nhan su va quy trinh van hanh phong gym.",
-    status: "active",
-    avatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=Ha",
-  },
-];
+const API_BASE_URL = "http://localhost:3000";
 
-const mapTrainerToStaff = (trainer: Trainer): StaffMember => ({
-  id: trainer.id,
-  userId: trainer.userId,
-  name: trainer.name,
-  email: trainer.email,
-  phone: trainer.phone,
-  dateOfBirth: "",
-  gender: "male",
-  address: "",
-  staffType: "trainer",
-  specialization: trainer.specialization.join(", "),
-  experience: trainer.experience,
-  description: trainer.bio,
-  status: trainer.isAvailable ? "active" : "inactive",
-  avatar: trainer.avatar || "",
+type ApiUser = {
+  id?: number | string;
+  fullName?: string;
+  full_name?: string;
+  name?: string;
+  email?: string;
+  phone?: string;
+  status?: string;
+  avatar?: string;
+  avatarUrl?: string;
+};
+
+type ApiTrainerProfile = {
+  id?: number | string;
+  userId?: number | string;
+  user_id?: number | string;
+  user?: ApiUser;
+  bio?: string;
+  experienceYears?: number | string;
+  experience_years?: number | string;
+  specialties?: string;
+  specialization?: string[] | string;
+  status?: string;
+  avatar?: string;
+};
+
+const requestJson = async <T,>(
+  path: string,
+  options?: RequestInit,
+): Promise<T> => {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...options?.headers,
+    },
+  });
+  const responseText = await response.text();
+
+  if (!response.ok) {
+    throw new Error(responseText || `Request failed with ${response.status}`);
+  }
+
+  return responseText ? (JSON.parse(responseText) as T) : (undefined as T);
+};
+
+const mapApiTrainerToStaff = (trainer: ApiTrainerProfile): StaffMember => {
+  const user = trainer.user;
+  const specialties = Array.isArray(trainer.specialization)
+    ? trainer.specialization.join(", ")
+    : trainer.specialization ?? trainer.specialties ?? "";
+
+  return {
+    id: String(trainer.id ?? ""),
+    userId: String(trainer.userId ?? trainer.user_id ?? user?.id ?? ""),
+    name: user?.fullName ?? user?.full_name ?? user?.name ?? "",
+    email: user?.email ?? "",
+    phone: user?.phone ?? "",
+    dateOfBirth: "",
+    gender: "male",
+    address: "",
+    staffType: "trainer",
+    specialization: specialties,
+    experience: Number(trainer.experienceYears ?? trainer.experience_years ?? 0),
+    description: trainer.bio ?? "",
+    status:
+      trainer.status === "inactive" || user?.status === "inactive"
+        ? "inactive"
+        : "active",
+    avatar:
+      trainer.avatar ||
+      user?.avatar ||
+      user?.avatarUrl ||
+      `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(
+        user?.fullName ?? user?.name ?? "trainer",
+      )}`,
+  };
+};
+
+const toApiTrainerPayload = (staff: StaffFormData & { userId?: string }) => ({
+  userId: Number(staff.userId) || undefined,
+  name: staff.name,
+  fullName: staff.name,
+  email: staff.email,
+  phone: staff.phone,
+  staffType: staff.staffType,
+  bio: staff.description,
+  experienceYears: Number(staff.experience) || 0,
+  specialties: staff.specialization,
+  status: staff.status,
 });
 
 const getStaffTypeText = (type: StaffType) =>
@@ -107,11 +164,9 @@ const inputClass =
   "w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm";
 
 export const Trainers: React.FC = () => {
-  const initialStaff = useMemo(
-    () => [...managerStaff, ...mockTrainers.map(mapTrainerToStaff)],
-    [],
-  );
-  const [staff, setStaff] = useState<StaffMember[]>(initialStaff);
+  const { user } = useAuth();
+  const isCashier = user?.role === "cashier";
+  const [staff, setStaff] = useState<StaffMember[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [staffFilter, setStaffFilter] = useState<StaffFilter>("all");
   const [showFormModal, setShowFormModal] = useState(false);
@@ -119,6 +174,31 @@ export const Trainers: React.FC = () => {
   const [deleteStaff, setDeleteStaff] = useState<StaffMember | null>(null);
   const [formData, setFormData] = useState<StaffFormData>(emptyForm);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    requestJson<unknown>("/trainer-profiles")
+      .then((apiTrainers) => {
+        if (isMounted) {
+          setStaff(
+            Array.isArray(apiTrainers)
+              ? apiTrainers.map(mapApiTrainerToStaff)
+              : [],
+          );
+        }
+      })
+      .catch((error) => {
+        console.error(error);
+        if (isMounted) {
+          setStaff([]);
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const filteredStaff = staff.filter((item) => {
     const matchesSearch = item.name
@@ -132,11 +212,12 @@ export const Trainers: React.FC = () => {
 
   const openAddModal = () => {
     setEditingStaff(null);
-    setFormData(emptyForm);
+    setFormData({ ...emptyForm, staffType: "trainer" });
     setShowFormModal(true);
   };
 
   const openEditModal = (item: StaffMember) => {
+    if (isCashier && item.staffType !== "trainer") return;
     setEditingStaff(item);
     setFormData({
       name: item.name,
@@ -178,7 +259,7 @@ export const Trainers: React.FC = () => {
     reader.readAsDataURL(file);
   };
 
-  const handleSubmit = (event: React.FormEvent) => {
+  const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
 
     const avatar =
@@ -187,41 +268,72 @@ export const Trainers: React.FC = () => {
       `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(
         formData.name || "staff",
       )}`;
+    const staffType: StaffType = isCashier ? "trainer" : formData.staffType;
 
-    if (editingStaff) {
-      setStaff((current) =>
-        current.map((item) =>
-          item.id === editingStaff.id
-            ? {
-                ...item,
+    try {
+      if (editingStaff) {
+        const apiStaff = await requestJson<unknown>(
+          `/trainer-profiles/${editingStaff.id}`,
+          {
+            method: "PATCH",
+            body: JSON.stringify(
+              toApiTrainerPayload({ ...formData, staffType, userId: editingStaff.userId }),
+            ),
+          },
+        );
+        const savedStaff =
+          typeof apiStaff === "object" && apiStaff !== null
+            ? mapApiTrainerToStaff(apiStaff as ApiTrainerProfile)
+            : {
+                ...editingStaff,
                 ...formData,
+                staffType,
                 experience: Number(formData.experience) || 0,
                 avatar,
-              }
-            : item,
-        ),
-      );
-    } else {
-      const timestamp = Date.now();
-      setStaff((current) => [
-        {
-          ...formData,
-          id: `staff-${timestamp}`,
-          userId: `staff-user-${timestamp}`,
-          experience: Number(formData.experience) || 0,
-          avatar,
-        },
-        ...current,
-      ]);
-    }
+              };
 
-    closeFormModal();
+        setStaff((current) =>
+          current.map((item) => (item.id === editingStaff.id ? savedStaff : item)),
+        );
+      } else {
+        const apiStaff = await requestJson<unknown>("/trainer-profiles", {
+          method: "POST",
+          body: JSON.stringify(toApiTrainerPayload({ ...formData, staffType })),
+        });
+        if (typeof apiStaff !== "object" || apiStaff === null) {
+          throw new Error("API /trainer-profiles không trả về dữ liệu hợp lệ");
+        }
+        setStaff((current) => [
+          mapApiTrainerToStaff(apiStaff as ApiTrainerProfile),
+          ...current,
+        ]);
+      }
+
+      closeFormModal();
+    } catch (error) {
+      window.alert(
+        error instanceof Error ? error.message : "Khong the luu nhan su!",
+      );
+    }
   };
 
-  const confirmDelete = () => {
+  const confirmDelete = async () => {
     if (!deleteStaff) return;
-    setStaff((current) => current.filter((item) => item.id !== deleteStaff.id));
-    setDeleteStaff(null);
+    if (isCashier && deleteStaff.staffType !== "trainer") {
+      setDeleteStaff(null);
+      return;
+    }
+    try {
+      await requestJson<unknown>(`/trainer-profiles/${deleteStaff.id}`, {
+        method: "DELETE",
+      });
+      setStaff((current) => current.filter((item) => item.id !== deleteStaff.id));
+      setDeleteStaff(null);
+    } catch (error) {
+      window.alert(
+        error instanceof Error ? error.message : "Khong the xoa nhan su!",
+      );
+    }
   };
 
   return (
@@ -299,20 +411,24 @@ export const Trainers: React.FC = () => {
                     </div>
                   </div>
                   <div className="flex gap-2 flex-shrink-0">
-                    <button
-                      onClick={() => openEditModal(item)}
-                      className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                      title="Sửa nhân sự"
-                    >
-                      <Edit size={18} />
-                    </button>
-                    <button
-                      onClick={() => setDeleteStaff(item)}
-                      className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                      title="Xóa nhân sự"
-                    >
-                      <Trash2 size={18} />
-                    </button>
+                    {(!isCashier || item.staffType === "trainer") && (
+                      <>
+                        <button
+                          onClick={() => openEditModal(item)}
+                          className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                          title="Sửa nhân sự"
+                        >
+                          <Edit size={18} />
+                        </button>
+                        <button
+                          onClick={() => setDeleteStaff(item)}
+                          className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                          title="Xóa nhân sự"
+                        >
+                          <Trash2 size={18} />
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
 
@@ -511,12 +627,17 @@ export const Trainers: React.FC = () => {
                     onChange={(event) =>
                       setFormData((current) => ({
                         ...current,
-                        staffType: event.target.value as StaffType,
+                        staffType: isCashier
+                          ? "trainer"
+                          : (event.target.value as StaffType),
                       }))
                     }
+                    disabled={isCashier}
                     className={inputClass}
                   >
-                    <option value="manager">Nhân viên quản lý</option>
+                    {!isCashier && (
+                      <option value="manager">Nhân viên quản lý</option>
+                    )}
                     <option value="trainer">PT/HLV</option>
                   </select>
                 </FormField>

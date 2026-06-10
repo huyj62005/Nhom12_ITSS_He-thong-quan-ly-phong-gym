@@ -2,54 +2,42 @@ import React, { createContext, useContext, useState, useEffect } from "react";
 import { User, AuthContextType } from "../types";
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
+const API_BASE_URL = "http://localhost:3000";
 
-const MOCK_USERS: (User & { password: string })[] = [
-  {
-    id: "1",
-    email: "admin@gym.com",
-    password: "admin123",
-    name: "Admin User",
-    role: "admin",
-    avatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=admin",
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: "2",
-    email: "manager@gym.com",
-    password: "manager123",
-    name: "Manager User",
-    role: "manager",
-    avatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=manager",
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: "3",
-    email: "cashier@gym.com",
-    password: "cashier123",
-    name: "Cashier User",
-    role: "cashier",
-    avatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=cashier",
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: "4",
-    email: "trainer@gym.com",
-    password: "trainer123",
-    name: "Trainer User",
-    role: "trainer",
-    avatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=trainer",
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: "5",
-    email: "member@gym.com",
-    password: "member123",
-    name: "Member User",
-    role: "member",
-    avatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=member",
-    createdAt: new Date().toISOString(),
-  },
-];
+type ApiUser = Partial<User> & {
+  fullName?: string;
+  full_name?: string;
+};
+
+const requestJson = async <T,>(path: string, options?: RequestInit): Promise<T> => {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...options?.headers,
+    },
+  });
+  const responseText = await response.text();
+
+  if (!response.ok) {
+    throw new Error(responseText || `Request failed with ${response.status}`);
+  }
+
+  return responseText ? (JSON.parse(responseText) as T) : (undefined as T);
+};
+
+const mapApiUser = (apiUser: ApiUser): User => ({
+  id: String(apiUser.id ?? ""),
+  email: apiUser.email ?? "",
+  name: apiUser.name ?? apiUser.fullName ?? apiUser.full_name ?? "",
+  role: apiUser.role ?? "member",
+  avatar:
+    apiUser.avatar ??
+    `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(
+      apiUser.email ?? apiUser.name ?? "user",
+    )}`,
+  createdAt: apiUser.createdAt ?? new Date().toISOString(),
+});
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
@@ -64,17 +52,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   }, []);
 
   const login = async (email: string, password: string) => {
-    const foundUser = MOCK_USERS.find(
-      (u) => u.email === email && u.password === password,
-    );
-
-    if (foundUser) {
-      const { password: _, ...userWithoutPassword } = foundUser;
-      setUser(userWithoutPassword);
-      localStorage.setItem("gym_user", JSON.stringify(userWithoutPassword));
-    } else {
-      throw new Error("Invalid credentials");
-    }
+    const apiUser = await requestJson<ApiUser>("/users/login", {
+      method: "POST",
+      body: JSON.stringify({ email, password }),
+    });
+    const loggedInUser = mapApiUser(apiUser);
+    setUser(loggedInUser);
+    localStorage.setItem("gym_user", JSON.stringify(loggedInUser));
+    return loggedInUser;
   };
 
   const logout = () => {

@@ -14,6 +14,7 @@ import {
   Package,
 } from "lucide-react";
 import { Member } from "../types";
+import { getPackageDisplayName } from "../utils/packageNames";
 
 type StatusFilter = "all" | "active" | "expired";
 
@@ -164,7 +165,7 @@ export const Members: React.FC = () => {
     setEditAvatarPreview(member.avatar || "");
   };
 
-  const handleAddSubmit = (e: React.FormEvent) => {
+  const handleAddSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.name || !formData.email || !formData.phone) {
       showToast("Vui lòng điền đầy đủ thông tin bắt buộc!", "error");
@@ -185,15 +186,22 @@ export const Members: React.FC = () => {
         formData.avatarUrl ||
         `https://api.dicebear.com/7.x/avataaars/svg?seed=${formData.name}`,
     };
-    addMember(newMember);
+    try {
+      await addMember(newMember);
     setShowAddModal(false);
     showToast(
       "Thêm hội viên thành công! Vui lòng tạo thanh toán để kích hoạt gói tập.",
       "success",
     );
+    } catch (error) {
+      showToast(
+        error instanceof Error ? error.message : "Khong the them hoi vien!",
+        "error",
+      );
+    }
   };
 
-  const handleEditSubmit = (e: React.FormEvent) => {
+  const handleEditSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editMember) return;
     if (!editFormData.name || !editFormData.email || !editFormData.phone) {
@@ -207,7 +215,7 @@ export const Members: React.FC = () => {
         ? editMember.avatar
         : `https://api.dicebear.com/7.x/avataaars/svg?seed=${editFormData.name}`);
 
-    updateMember(editMember.id, {
+    await updateMember(editMember.id, {
       name: editFormData.name,
       email: editFormData.email,
       phone: editFormData.phone,
@@ -221,8 +229,8 @@ export const Members: React.FC = () => {
     showToast("Cập nhật hội viên thành công!", "success");
   };
 
-  const handleDelete = (id: string) => {
-    deleteMember(id);
+  const handleDelete = async (id: string) => {
+    await deleteMember(id);
     setDeleteConfirmId(null);
     showToast("Đã xóa hội viên!", "success");
   };
@@ -435,7 +443,7 @@ export const Members: React.FC = () => {
                       </td>
                       <td className="px-5 py-4 whitespace-nowrap text-sm text-gray-700">
                         {member.currentPackage ? (
-                          member.currentPackage.name
+                          getPackageDisplayName(member.currentPackage)
                         ) : (
                           <span className="text-gray-400 italic text-xs">
                             Chưa có gói tập
@@ -790,7 +798,7 @@ export const Members: React.FC = () => {
                     Gói tập hiện tại (quản lý qua Thanh Toán)
                   </p>
                   <p className="text-sm text-blue-900 font-semibold">
-                    {editMember.currentPackage.name}
+                    {getPackageDisplayName(editMember.currentPackage)}
                   </p>
                   {editMember.packageExpiry && (
                     <p className="text-xs text-blue-700 mt-0.5">
@@ -881,11 +889,15 @@ export const Members: React.FC = () => {
                 <InfoRow label="Địa chỉ" value={viewMember.address} colSpan />
                 <InfoRow
                   label="Gói tập hiện tại"
-                  value={viewMember.currentPackage?.name || "Chưa có gói tập"}
+                  value={getPackageDisplayName(viewMember.currentPackage)}
                 />
                 <InfoRow
                   label="Loại gói"
-                  value={viewMember.currentPackage?.type?.toUpperCase() || "-"}
+                  value={
+                    viewMember.currentPackage
+                      ? getPackageDisplayName(viewMember.currentPackage)
+                      : "-"
+                  }
                 />
                 <InfoRow
                   label="Ngày hết hạn gói"

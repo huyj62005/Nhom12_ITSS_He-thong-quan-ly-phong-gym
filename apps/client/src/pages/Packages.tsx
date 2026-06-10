@@ -3,6 +3,7 @@ import { DashboardLayout } from "../components/DashboardLayout";
 import { useGymData } from "../contexts/GymDataContext";
 import { Plus, Edit, Trash2, Check } from "lucide-react";
 import { MembershipPackage } from "../types";
+import { getPackageDisplayName } from "../utils/packageNames";
 
 type PackageForm = {
   name: string;
@@ -17,7 +18,7 @@ const emptyPackageForm: PackageForm = {
   description: "",
   duration: "",
   price: "",
-  type: "monthly",
+  type: "quarterly",
 };
 
 export const Packages: React.FC = () => {
@@ -36,38 +37,13 @@ export const Packages: React.FC = () => {
     }).format(amount);
   };
 
-  const getPackageTypeColor = (type: string) => {
-    switch (type) {
-      case "monthly":
-        return "bg-blue-100 text-blue-800";
-      case "quarterly":
-        return "bg-green-100 text-green-800";
-      case "yearly":
-        return "bg-purple-100 text-purple-800";
-      case "vip":
-        return "bg-yellow-100 text-yellow-800";
-      case "pt":
-        return "bg-red-100 text-red-800";
-      default:
-        return "bg-gray-100 text-gray-800";
-    }
-  };
+  const getPackageTypeColor = (pkg: MembershipPackage) => {
+    const displayName = getPackageDisplayName(pkg);
 
-  const getPackageTypeName = (type: string) => {
-    switch (type) {
-      case "monthly":
-        return "Tháng";
-      case "quarterly":
-        return "Quý";
-      case "yearly":
-        return "Năm";
-      case "vip":
-        return "VIP";
-      case "pt":
-        return "PT";
-      default:
-        return type;
-    }
+    if (displayName === "Gói PT") return "bg-red-100 text-red-800";
+    if (displayName === "Gói 12 tháng") return "bg-purple-100 text-purple-800";
+    if (displayName === "Gói 6 tháng") return "bg-green-100 text-green-800";
+    return "bg-blue-100 text-blue-800";
   };
 
   const openAddModal = () => {
@@ -101,7 +77,11 @@ export const Packages: React.FC = () => {
     basePackage?: MembershipPackage,
   ): MembershipPackage => ({
     id,
-    name: packageForm.name.trim(),
+    name: getPackageDisplayName({
+      name: packageForm.name,
+      duration: Number(packageForm.duration),
+      type: packageForm.type,
+    }),
     description: packageForm.description.trim(),
     duration: Number(packageForm.duration),
     price: Number(packageForm.price),
@@ -182,10 +162,10 @@ export const Packages: React.FC = () => {
                   <div>
                     <span
                       className={`px-2 py-1 text-xs font-semibold rounded-full ${getPackageTypeColor(
-                        pkg.type,
+                        pkg,
                       )}`}
                     >
-                      {getPackageTypeName(pkg.type)}
+                      {getPackageDisplayName(pkg)}
                     </span>
                   </div>
                   <div className="flex gap-2">
@@ -193,7 +173,7 @@ export const Packages: React.FC = () => {
                       type="button"
                       onClick={() => openEditModal(pkg)}
                       className="text-blue-600 hover:text-blue-800"
-                      aria-label={`Chỉnh sửa ${pkg.name}`}
+                      aria-label={`Chỉnh sửa ${getPackageDisplayName(pkg)}`}
                     >
                       <Edit size={18} />
                     </button>
@@ -201,7 +181,7 @@ export const Packages: React.FC = () => {
                       type="button"
                       onClick={() => handleDeletePackage(pkg.id)}
                       className="text-red-600 hover:text-red-800"
-                      aria-label={`Xóa ${pkg.name}`}
+                      aria-label={`Xóa ${getPackageDisplayName(pkg)}`}
                     >
                       <Trash2 size={18} />
                     </button>
@@ -209,7 +189,7 @@ export const Packages: React.FC = () => {
                 </div>
 
                 <h3 className="text-xl font-bold text-gray-900 mb-2">
-                  {pkg.name}
+                  {getPackageDisplayName(pkg)}
                 </h3>
                 <p className="text-gray-600 text-sm mb-4">{pkg.description}</p>
 
@@ -274,15 +254,15 @@ export const Packages: React.FC = () => {
                 {packages.map((pkg) => (
                   <tr key={pkg.id} className="hover:bg-gray-50">
                     <td className="px-6 py-4 whitespace-nowrap font-medium text-gray-900">
-                      {pkg.name}
+                      {getPackageDisplayName(pkg)}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <span
                         className={`px-2 py-1 text-xs font-semibold rounded-full ${getPackageTypeColor(
-                          pkg.type,
+                          pkg,
                         )}`}
                       >
-                        {getPackageTypeName(pkg.type)}
+                        {getPackageDisplayName(pkg)}
                       </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
@@ -308,7 +288,7 @@ export const Packages: React.FC = () => {
                           type="button"
                           onClick={() => openEditModal(pkg)}
                           className="text-blue-600 hover:text-blue-900"
-                          aria-label={`Chỉnh sửa ${pkg.name}`}
+                          aria-label={`Chỉnh sửa ${getPackageDisplayName(pkg)}`}
                         >
                           <Edit size={18} />
                         </button>
@@ -316,7 +296,7 @@ export const Packages: React.FC = () => {
                           type="button"
                           onClick={() => handleDeletePackage(pkg.id)}
                           className="text-red-600 hover:text-red-900"
-                          aria-label={`Xóa ${pkg.name}`}
+                          aria-label={`Xóa ${getPackageDisplayName(pkg)}`}
                         >
                           <Trash2 size={18} />
                         </button>
@@ -366,7 +346,7 @@ export const Packages: React.FC = () => {
                     }))
                   }
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="Gói Tháng Premium"
+                  placeholder="Gói 3 tháng"
                   required
                 />
               </div>
@@ -413,10 +393,8 @@ export const Packages: React.FC = () => {
                     }
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
-                    <option value="monthly">Tháng</option>
-                    <option value="quarterly">Quý</option>
-                    <option value="yearly">Năm</option>
-                    <option value="vip">VIP</option>
+                    <option value="quarterly">Gói 3 tháng</option>
+                    <option value="yearly">Gói 6 tháng / 12 tháng</option>
                     <option value="pt">PT</option>
                   </select>
                 </div>

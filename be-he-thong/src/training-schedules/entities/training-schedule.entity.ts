@@ -57,4 +57,9 @@ export class TrainingSchedule {
         length: 50,
     })
     status?: string;
+
+    @Column('text', {
+        nullable: true,
+    })
+    notes?: string;
 }

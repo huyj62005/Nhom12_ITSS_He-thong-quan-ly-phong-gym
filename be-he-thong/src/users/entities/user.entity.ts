@@ -12,6 +12,7 @@ import { Notification } from '../../notifications/entities/notification.entity';
 export enum UserRole {
     ADMIN = 'admin',
     MANAGER = 'manager',
+    CASHIER = 'cashier',
     TRAINER = 'trainer',
     MEMBER = 'member',
 }

@@ -1,6 +1,5 @@
-import React from "react";
+﻿import React, { useEffect, useMemo, useState } from "react";
 import { DashboardLayout } from "../components/DashboardLayout";
-import { mockRevenueData, mockStats } from "../data/mockData";
 import {
   BarChart,
   Bar,
@@ -24,7 +23,289 @@ import {
   Download,
 } from "lucide-react";
 
+const API_BASE_URL = "http://localhost:3000";
+
+type ReportMember = {
+  id?: number | string;
+  joinDate?: string;
+  join_date?: string;
+  status?: string;
+  membershipStatus?: string;
+};
+
+type ReportPayment = {
+  amount?: number | string;
+  status?: string;
+  paidAt?: string;
+  paid_at?: string;
+  paymentDate?: string;
+};
+
+type ReportSchedule = {
+  startTime?: string;
+  start_time?: string;
+  date?: string;
+};
+
+type ReportEquipment = {
+  status?: string;
+};
+
+type ReportMemberPackage = {
+  packageId?: number | string;
+  package?: {
+    name?: string;
+    duration?: number | string;
+    durationDays?: number | string;
+    type?: string;
+  };
+};
+
+type ReportStats = {
+  totalRevenue: number;
+  totalMembers: number;
+  activeMembers: number;
+  newMembersThisMonth: number;
+  revenueThisMonth: number;
+  scheduledSessions: number;
+  equipmentMaintenance: number;
+};
+
+type RevenueRow = {
+  month: string;
+  revenue: number;
+  members: number;
+};
+
+const emptyStats: ReportStats = {
+  totalRevenue: 0,
+  totalMembers: 0,
+  activeMembers: 0,
+  newMembersThisMonth: 0,
+  revenueThisMonth: 0,
+  scheduledSessions: 0,
+  equipmentMaintenance: 0,
+};
+
+const requestJson = async <T,>(path: string): Promise<T> => {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    headers: {
+      "Content-Type": "application/json",
+    },
+  });
+  const responseText = await response.text();
+
+  if (!response.ok) {
+    throw new Error(responseText || `Request failed with ${response.status}`);
+  }
+
+  return responseText ? (JSON.parse(responseText) as T) : (undefined as T);
+};
+
+const toArray = <T,>(value: unknown): T[] => (Array.isArray(value) ? value as T[] : []);
+
+const getDateString = (value?: string) => {
+  if (!value) return "";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value.slice(0, 10) : date.toISOString().slice(0, 10);
+};
+
+const getPaymentDate = (payment: ReportPayment) =>
+  getDateString(payment.paymentDate ?? payment.paidAt ?? payment.paid_at);
+
+const isPaidPayment = (payment: ReportPayment) =>
+  payment.status === "paid" || payment.status === "completed" || !payment.status;
+
+const getPackageName = (memberPackage: ReportMemberPackage) => {
+  const pkg = memberPackage.package;
+  const name = pkg?.name ?? "";
+  const duration = Number(pkg?.duration ?? pkg?.durationDays ?? 0);
+
+  if (name) return name;
+  if (pkg?.type === "pt") return "Gói PT";
+  if (duration >= 360) return "Gói 12 tháng";
+  if (duration >= 180) return "Gói 6 tháng";
+  if (duration >= 80) return "Gói 3 tháng";
+  return "Gói PT";
+};
+
+const encoder = new TextEncoder();
+
+const crcTable = Array.from({ length: 256 }, (_, index) => {
+  let crc = index;
+  for (let bit = 0; bit < 8; bit += 1) {
+    crc = crc & 1 ? 0xedb88320 ^ (crc >>> 1) : crc >>> 1;
+  }
+  return crc >>> 0;
+});
+
+const getCrc32 = (data: Uint8Array) => {
+  let crc = 0xffffffff;
+  data.forEach((byte) => {
+    crc = crcTable[(crc ^ byte) & 0xff]! ^ (crc >>> 8);
+  });
+  return (crc ^ 0xffffffff) >>> 0;
+};
+
+const pushUint16 = (target: number[], value: number) => {
+  target.push(value & 0xff, (value >>> 8) & 0xff);
+};
+
+const pushUint32 = (target: number[], value: number) => {
+  target.push(
+    value & 0xff,
+    (value >>> 8) & 0xff,
+    (value >>> 16) & 0xff,
+    (value >>> 24) & 0xff,
+  );
+};
+
+const getDosDateTime = (date: Date) => {
+  const time =
+    (date.getHours() << 11) |
+    (date.getMinutes() << 5) |
+    Math.floor(date.getSeconds() / 2);
+  const dosDate =
+    ((date.getFullYear() - 1980) << 9) |
+    ((date.getMonth() + 1) << 5) |
+    date.getDate();
+
+  return { dosDate, time };
+};
+
+const createZipBlob = (files: { name: string; content: string }[]) => {
+  const localParts: Uint8Array[] = [];
+  const centralParts: Uint8Array[] = [];
+  let offset = 0;
+  const now = new Date();
+  const { dosDate, time } = getDosDateTime(now);
+
+  files.forEach((file) => {
+    const fileName = encoder.encode(file.name);
+    const content = encoder.encode(file.content);
+    const crc = getCrc32(content);
+    const localHeader: number[] = [];
+
+    pushUint32(localHeader, 0x04034b50);
+    pushUint16(localHeader, 20);
+    pushUint16(localHeader, 0);
+    pushUint16(localHeader, 0);
+    pushUint16(localHeader, time);
+    pushUint16(localHeader, dosDate);
+    pushUint32(localHeader, crc);
+    pushUint32(localHeader, content.length);
+    pushUint32(localHeader, content.length);
+    pushUint16(localHeader, fileName.length);
+    pushUint16(localHeader, 0);
+
+    localParts.push(new Uint8Array(localHeader), fileName, content);
+
+    const centralHeader: number[] = [];
+    pushUint32(centralHeader, 0x02014b50);
+    pushUint16(centralHeader, 20);
+    pushUint16(centralHeader, 20);
+    pushUint16(centralHeader, 0);
+    pushUint16(centralHeader, 0);
+    pushUint16(centralHeader, time);
+    pushUint16(centralHeader, dosDate);
+    pushUint32(centralHeader, crc);
+    pushUint32(centralHeader, content.length);
+    pushUint32(centralHeader, content.length);
+    pushUint16(centralHeader, fileName.length);
+    pushUint16(centralHeader, 0);
+    pushUint16(centralHeader, 0);
+    pushUint16(centralHeader, 0);
+    pushUint16(centralHeader, 0);
+    pushUint32(centralHeader, 0);
+    pushUint32(centralHeader, offset);
+
+    centralParts.push(new Uint8Array(centralHeader), fileName);
+    offset += localHeader.length + fileName.length + content.length;
+  });
+
+  const centralSize = centralParts.reduce((sum, part) => sum + part.length, 0);
+  const endRecord: number[] = [];
+  pushUint32(endRecord, 0x06054b50);
+  pushUint16(endRecord, 0);
+  pushUint16(endRecord, 0);
+  pushUint16(endRecord, files.length);
+  pushUint16(endRecord, files.length);
+  pushUint32(endRecord, centralSize);
+  pushUint32(endRecord, offset);
+  pushUint16(endRecord, 0);
+
+  return new Blob([...localParts, ...centralParts, new Uint8Array(endRecord)], {
+    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  });
+};
+
+const escapeXml = (value: string | number) =>
+  String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+
+const createReportWorkbook = (rows: [string, string | number][]) => {
+  const sheetRows = rows
+    .map(
+      ([label, value], rowIndex) => `
+        <row r="${rowIndex + 1}">
+          <c r="A${rowIndex + 1}" t="inlineStr"><is><t>${escapeXml(label)}</t></is></c>
+          <c r="B${rowIndex + 1}" t="inlineStr"><is><t>${escapeXml(value)}</t></is></c>
+        </row>`,
+    )
+    .join("");
+
+  return createZipBlob([
+    {
+      name: "[Content_Types].xml",
+      content: `<?xml version="1.0" encoding="UTF-8"?>
+        <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+          <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+          <Default Extension="xml" ContentType="application/xml"/>
+          <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+          <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+        </Types>`,
+    },
+    {
+      name: "_rels/.rels",
+      content: `<?xml version="1.0" encoding="UTF-8"?>
+        <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+          <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+        </Relationships>`,
+    },
+    {
+      name: "xl/workbook.xml",
+      content: `<?xml version="1.0" encoding="UTF-8"?>
+        <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+          <sheets>
+            <sheet name="Bao cao" sheetId="1" r:id="rId1"/>
+          </sheets>
+        </workbook>`,
+    },
+    {
+      name: "xl/_rels/workbook.xml.rels",
+      content: `<?xml version="1.0" encoding="UTF-8"?>
+        <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+          <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+        </Relationships>`,
+    },
+    {
+      name: "xl/worksheets/sheet1.xml",
+      content: `<?xml version="1.0" encoding="UTF-8"?>
+        <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+          <sheetData>${sheetRows}</sheetData>
+        </worksheet>`,
+    },
+  ]);
+};
+
 export const Reports: React.FC = () => {
+  const [stats, setStats] = useState<ReportStats>(emptyStats);
+  const [revenueData, setRevenueData] = useState<RevenueRow[]>([]);
+  const [memberPackages, setMemberPackages] = useState<ReportMemberPackage[]>([]);
+
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat("vi-VN", {
       style: "currency",
@@ -32,21 +313,155 @@ export const Reports: React.FC = () => {
     }).format(amount);
   };
 
+  useEffect(() => {
+    let isMounted = true;
+
+    const fetchReportData = async () => {
+      const [paymentsResult, membersResult, schedulesResult, equipmentResult, memberPackagesResult] =
+        await Promise.allSettled([
+          requestJson<unknown>("/payments"),
+          requestJson<unknown>("/members"),
+          requestJson<unknown>("/training-schedules"),
+          requestJson<unknown>("/equipments"),
+          requestJson<unknown>("/member-packages"),
+        ]);
+
+      if (!isMounted) return;
+
+      const payments =
+        paymentsResult.status === "fulfilled"
+          ? toArray<ReportPayment>(paymentsResult.value)
+          : [];
+      const members =
+        membersResult.status === "fulfilled"
+          ? toArray<ReportMember>(membersResult.value)
+          : [];
+      const schedules =
+        schedulesResult.status === "fulfilled"
+          ? toArray<ReportSchedule>(schedulesResult.value)
+          : [];
+      const equipment =
+        equipmentResult.status === "fulfilled"
+          ? toArray<ReportEquipment>(equipmentResult.value)
+          : [];
+      const packageRows =
+        memberPackagesResult.status === "fulfilled"
+          ? toArray<ReportMemberPackage>(memberPackagesResult.value)
+          : [];
+
+      const today = new Date().toISOString().slice(0, 10);
+      const currentMonth = today.slice(0, 7);
+      const paidPayments = payments.filter(isPaidPayment);
+
+      setStats({
+        totalRevenue: paidPayments.reduce(
+          (sum, payment) => sum + Number(payment.amount ?? 0),
+          0,
+        ),
+        totalMembers: members.length,
+        activeMembers: members.filter(
+          (member) =>
+            member.status === "active" ||
+            member.membershipStatus === "active",
+        ).length,
+        newMembersThisMonth: members.filter((member) =>
+          getDateString(member.joinDate ?? member.join_date).startsWith(
+            currentMonth,
+          ),
+        ).length,
+        revenueThisMonth: paidPayments
+          .filter((payment) => getPaymentDate(payment).startsWith(currentMonth))
+          .reduce((sum, payment) => sum + Number(payment.amount ?? 0), 0),
+        scheduledSessions: schedules.filter(
+          (schedule) =>
+            getDateString(schedule.date ?? schedule.startTime ?? schedule.start_time) ===
+            today,
+        ).length,
+        equipmentMaintenance: equipment.filter(
+          (item) => item.status === "maintenance",
+        ).length,
+      });
+
+      setRevenueData(
+        Array.from({ length: 7 }, (_, index) => {
+          const date = new Date();
+          date.setMonth(date.getMonth() - (6 - index));
+          const key = date.toISOString().slice(0, 7);
+          return {
+            month: `T${date.getMonth() + 1}`,
+            revenue: paidPayments
+              .filter((payment) => getPaymentDate(payment).startsWith(key))
+              .reduce((sum, payment) => sum + Number(payment.amount ?? 0), 0),
+            members: members.filter((member) =>
+              getDateString(member.joinDate ?? member.join_date).startsWith(key),
+            ).length,
+          };
+        }),
+      );
+      setMemberPackages(packageRows);
+    };
+
+    fetchReportData().catch((error) => {
+      console.error(error);
+      if (isMounted) {
+        setStats(emptyStats);
+        setRevenueData([]);
+        setMemberPackages([]);
+      }
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const handleExportReport = () => {
+    const today = new Date().toISOString().slice(0, 10);
+    const workbook = createReportWorkbook([
+      ["Tổng doanh thu", formatCurrency(stats.totalRevenue)],
+      ["Tổng hội viên", stats.totalMembers],
+      ["Doanh thu tháng", formatCurrency(stats.revenueThisMonth)],
+      ["Hội viên mới tháng này", stats.newMembersThisMonth],
+    ]);
+    const url = URL.createObjectURL(workbook);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `bao-cao-gym-${today}.xlsx`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
   const membershipData = [
-    { name: "Hoạt động", value: mockStats.activeMembers, color: "#10b981" },
+    { name: "Hoạt động", value: stats.activeMembers, color: "#10b981" },
     {
       name: "Hết hạn",
-      value: mockStats.totalMembers - mockStats.activeMembers,
+      value: stats.totalMembers - stats.activeMembers,
       color: "#ef4444",
     },
   ];
 
-  const packageData = [
-    { name: "Tháng", value: 85, color: "#3b82f6" },
-    { name: "Quý", value: 62, color: "#10b981" },
-    { name: "Năm", value: 48, color: "#8b5cf6" },
-    { name: "PT", value: 32, color: "#f59e0b" },
-  ];
+  const packageData = useMemo(() => {
+    const colors: Record<string, string> = {
+      "Gói 3 tháng": "#3b82f6",
+      "Gói 6 tháng": "#10b981",
+      "Gói 12 tháng": "#8b5cf6",
+      "Gói PT": "#f59e0b",
+    };
+    const counts = memberPackages.reduce<Record<string, number>>(
+      (result, memberPackage) => {
+        const name = getPackageName(memberPackage);
+        result[name] = (result[name] ?? 0) + 1;
+        return result;
+      },
+      {},
+    );
+
+    return Object.entries(colors).map(([name, color]) => ({
+      name,
+      value: counts[name] ?? 0,
+      color,
+    }));
+  }, [memberPackages]);
 
   return (
     <DashboardLayout>
@@ -60,7 +475,10 @@ export const Reports: React.FC = () => {
               Tổng quan hiệu suất và phân tích dữ liệu
             </p>
           </div>
-          <button className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
+          <button
+            onClick={handleExportReport}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+          >
             <Download size={20} />
             Xuất Báo Cáo
           </button>
@@ -73,7 +491,7 @@ export const Reports: React.FC = () => {
             </div>
             <p className="text-blue-100 text-sm">Tổng Doanh Thu</p>
             <p className="text-3xl font-bold mt-2">
-              {formatCurrency(mockStats.totalRevenue)}
+              {formatCurrency(stats.totalRevenue)}
             </p>
           </div>
           <div className="bg-gradient-to-br from-green-500 to-green-600 rounded-lg shadow p-6 text-white">
@@ -81,7 +499,7 @@ export const Reports: React.FC = () => {
               <Users size={32} />
             </div>
             <p className="text-green-100 text-sm">Tổng Hội Viên</p>
-            <p className="text-3xl font-bold mt-2">{mockStats.totalMembers}</p>
+            <p className="text-3xl font-bold mt-2">{stats.totalMembers}</p>
           </div>
           <div className="bg-gradient-to-br from-purple-500 to-purple-600 rounded-lg shadow p-6 text-white">
             <div className="flex items-center justify-between mb-4">
@@ -89,7 +507,7 @@ export const Reports: React.FC = () => {
             </div>
             <p className="text-purple-100 text-sm">Doanh Thu Tháng</p>
             <p className="text-3xl font-bold mt-2">
-              {formatCurrency(mockStats.revenueThisMonth)}
+              {formatCurrency(stats.revenueThisMonth)}
             </p>
           </div>
           <div className="bg-gradient-to-br from-orange-500 to-orange-600 rounded-lg shadow p-6 text-white">
@@ -98,7 +516,7 @@ export const Reports: React.FC = () => {
             </div>
             <p className="text-orange-100 text-sm">HV Mới Tháng Này</p>
             <p className="text-3xl font-bold mt-2">
-              {mockStats.newMembersThisMonth}
+              {stats.newMembersThisMonth}
             </p>
           </div>
         </div>
@@ -109,7 +527,7 @@ export const Reports: React.FC = () => {
               Doanh Thu 7 Tháng Gần Nhất
             </h3>
             <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={mockRevenueData}>
+              <BarChart data={revenueData}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="month" />
                 <YAxis />
@@ -126,7 +544,7 @@ export const Reports: React.FC = () => {
               Xu Hướng Hội Viên
             </h3>
             <ResponsiveContainer width="100%" height={300}>
-              <LineChart data={mockRevenueData}>
+              <LineChart data={revenueData}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="month" />
                 <YAxis />
@@ -219,10 +637,10 @@ export const Reports: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {mockRevenueData.map((data, index) => {
+                {revenueData.map((data, index) => {
                   const prevRevenue =
                     index > 0
-                      ? (mockRevenueData[index - 1]?.revenue ?? data.revenue)
+                      ? (revenueData[index - 1]?.revenue ?? data.revenue)
                       : data.revenue;
                   const growth =
                     ((data.revenue - prevRevenue) / prevRevenue) * 100;
@@ -258,3 +676,4 @@ export const Reports: React.FC = () => {
     </DashboardLayout>
   );
 };
+

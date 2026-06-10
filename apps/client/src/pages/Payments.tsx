@@ -9,12 +9,15 @@ import {
   X,
   CreditCard,
   RefreshCw,
-  ArrowUpCircle,
   ChevronDown,
   AlertCircle,
   User,
 } from "lucide-react";
 import { Payment, Member } from "../types";
+import {
+  getPackageDisplayName,
+  isValidDisplayPackage,
+} from "../utils/packageNames";
 
 const formatCurrency = (amount: number) =>
   new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND" }).format(
@@ -42,7 +45,7 @@ const getMethodText = (method: string) => {
   }
 };
 
-type PaymentAction = "new" | "renew" | "upgrade";
+type PaymentAction = "new" | "renew" | "change";
 
 interface ToastState {
   message: string;
@@ -107,7 +110,9 @@ export const Payments: React.FC = () => {
   const filteredPayments = payments.filter((p) => {
     const matchesSearch =
       p.memberName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      p.packageName.toLowerCase().includes(searchTerm.toLowerCase());
+      getPackageDisplayName({ name: p.packageName })
+        .toLowerCase()
+        .includes(searchTerm.toLowerCase());
     return matchesSearch && p.status === "completed";
   });
 
@@ -147,7 +152,7 @@ export const Payments: React.FC = () => {
     setShowMemberDropdown(false);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedMember) {
       showToast("Vui lòng chọn hội viên!", "error");
@@ -167,31 +172,37 @@ export const Payments: React.FC = () => {
       method: paymentMethod,
       status: "completed",
       packageId: pkg.id,
-      packageName: pkg.name,
+      packageName: getPackageDisplayName(pkg),
       paymentDate: new Date().toISOString().slice(0, 10),
       processedBy: "Thu Ngân",
       notes: note,
     };
 
-    addPayment(newPayment);
+    try {
+      await addPayment(newPayment);
     resetModal();
     showToast(
-      `Thanh toán thành công! Gói "${pkg.name}" đã được kích hoạt cho ${selectedMember.name}.`,
+      `Thanh toán thành công! Gói "${getPackageDisplayName(pkg)}" đã được kích hoạt cho ${selectedMember.name}.`,
       "success",
     );
+    } catch (error) {
+      showToast(
+        error instanceof Error ? error.message : "Khong the tao thanh toan!",
+        "error",
+      );
+    }
   };
 
   const inputCls =
     "w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm";
 
-  // Available packages for upgrade (exclude current)
-  const upgradePackages = selectedMember?.currentPackage
-    ? packages.filter(
-        (p) =>
-          p.id !== selectedMember.currentPackage?.id &&
-          p.price > (selectedMember.currentPackage?.price || 0),
+  const availablePaymentPackages = packages.filter(isValidDisplayPackage);
+
+  const changePackages = selectedMember?.currentPackage
+    ? availablePaymentPackages.filter(
+        (pkg) => pkg.id !== selectedMember.currentPackage?.id,
       )
-    : packages;
+    : availablePaymentPackages;
 
   return (
     <DashboardLayout>
@@ -320,7 +331,7 @@ export const Payments: React.FC = () => {
                         {payment.memberName}
                       </td>
                       <td className="px-5 py-4 whitespace-nowrap text-sm text-gray-700">
-                        {payment.packageName}
+                        {getPackageDisplayName({ name: payment.packageName })}
                       </td>
                       <td className="px-5 py-4 whitespace-nowrap text-sm font-bold text-gray-900">
                         {formatCurrency(payment.amount)}
@@ -502,7 +513,7 @@ export const Payments: React.FC = () => {
                       </div>
                       <div className="bg-white rounded-lg px-3 py-2.5 border border-green-200">
                         <p className="text-sm font-medium text-gray-900">
-                          {selectedMember.currentPackage!.name}
+                          {getPackageDisplayName(selectedMember.currentPackage)}
                         </p>
                         <p className="text-xs text-gray-500 mt-0.5">
                           Hết hạn:{" "}
@@ -529,12 +540,12 @@ export const Payments: React.FC = () => {
                         <button
                           type="button"
                           onClick={() => {
-                            setPaymentAction("upgrade");
+                            setPaymentAction("change");
                             setSelectedPackageId("");
                           }}
-                          className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg border text-xs font-medium transition-colors ${paymentAction === "upgrade" ? "bg-blue-600 text-white border-blue-600" : "border-gray-300 text-gray-600 hover:bg-gray-50"}`}
+                          className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg border text-xs font-medium transition-colors ${paymentAction === "change" ? "bg-blue-600 text-white border-blue-600" : "border-gray-300 text-gray-600 hover:bg-gray-50"}`}
                         >
-                          <ArrowUpCircle size={13} /> Nâng cấp gói
+                          <RefreshCw size={13} /> Đổi gói
                         </button>
                       </div>
                     </div>
@@ -562,8 +573,8 @@ export const Payments: React.FC = () => {
                     </span>
                     {paymentAction === "renew"
                       ? "Gia hạn gói"
-                      : paymentAction === "upgrade"
-                        ? "Nâng cấp gói"
+                      : paymentAction === "change"
+                        ? "Đổi gói"
                         : "Chọn gói tập"}{" "}
                     <span className="text-red-500">*</span>
                   </label>
@@ -579,7 +590,7 @@ export const Payments: React.FC = () => {
                       <div className="flex items-center justify-between">
                         <div>
                           <p className="text-sm font-semibold text-gray-900">
-                            {selectedMember.currentPackage!.name}
+                            {getPackageDisplayName(selectedMember.currentPackage)}
                           </p>
                           <p className="text-xs text-gray-500 mt-0.5">
                             {selectedMember.currentPackage!.description}
@@ -592,9 +603,9 @@ export const Payments: React.FC = () => {
                     </div>
                   ) : (
                     <div className="grid gap-3">
-                      {(paymentAction === "upgrade"
-                        ? upgradePackages
-                        : packages
+                      {(paymentAction === "change"
+                        ? changePackages
+                        : availablePaymentPackages
                       ).map((pkg) => (
                         <div
                           key={pkg.id}
@@ -604,7 +615,7 @@ export const Payments: React.FC = () => {
                           <div className="flex items-center justify-between">
                             <div className="flex-1">
                               <p className="text-sm font-semibold text-gray-900">
-                                {pkg.name}
+                                {getPackageDisplayName(pkg)}
                               </p>
                               <p className="text-xs text-gray-500 mt-0.5">
                                 {pkg.description}
@@ -631,10 +642,10 @@ export const Payments: React.FC = () => {
                           </div>
                         </div>
                       ))}
-                      {paymentAction === "upgrade" &&
-                        upgradePackages.length === 0 && (
+                      {paymentAction === "change" &&
+                        changePackages.length === 0 && (
                           <p className="text-sm text-gray-400 text-center py-4">
-                            Không có gói cao hơn để nâng cấp.
+                            Không có gói khác để đổi.
                           </p>
                         )}
                     </div>
@@ -697,7 +708,7 @@ export const Payments: React.FC = () => {
                         <div className="flex justify-between">
                           <span className="text-gray-600">Gói tập</span>
                           <span className="font-medium">
-                            {selectedPackage.name}
+                            {getPackageDisplayName(selectedPackage)}
                           </span>
                         </div>
                         <div className="flex justify-between">
@@ -766,7 +777,10 @@ export const Payments: React.FC = () => {
               {[
                 { label: "Mã giao dịch", value: viewPayment.id },
                 { label: "Hội viên", value: viewPayment.memberName },
-                { label: "Gói tập", value: viewPayment.packageName },
+                {
+                  label: "Gói tập",
+                  value: getPackageDisplayName({ name: viewPayment.packageName }),
+                },
                 { label: "Số tiền", value: formatCurrency(viewPayment.amount) },
                 {
                   label: "Phương thức",

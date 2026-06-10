@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from "react";
 import { DashboardLayout } from "../components/DashboardLayout";
-import { mockEquipment } from "../data/mockData";
 import {
   Plus,
   Wrench,
@@ -50,7 +49,7 @@ const emptyEquipmentForm: EquipmentForm = {
 };
 
 export const EquipmentPage: React.FC = () => {
-  const [equipment, setEquipment] = useState<Equipment[]>(mockEquipment);
+  const [equipment, setEquipment] = useState<Equipment[]>([]);
   const [showModal, setShowModal] = useState(false);
   const [action, setAction] = useState<"add" | "edit">("add");
   const [selectedEquipment, setSelectedEquipment] = useState<Equipment | null>(
@@ -112,13 +111,18 @@ export const EquipmentPage: React.FC = () => {
   useEffect(() => {
     let isMounted = true;
 
-    requestJson<ApiEquipment[]>("/equipments")
+    requestJson<unknown>("/equipments")
       .then((apiEquipment) => {
         if (isMounted) {
-          setEquipment(apiEquipment.map(mapApiEquipment));
+          setEquipment(Array.isArray(apiEquipment) ? apiEquipment.map(mapApiEquipment) : []);
         }
       })
-      .catch(() => undefined);
+      .catch((error) => {
+        console.error(error);
+        if (isMounted) {
+          setEquipment([]);
+        }
+      });
 
     return () => {
       isMounted = false;

@@ -1,72 +1,284 @@
-import React, { useState } from 'react';
-import { DashboardLayout } from '../components/DashboardLayout';
-import { mockSchedules } from '../data/mockData';
-import { Plus, Calendar as CalendarIcon, Clock, User } from 'lucide-react';
-import { Schedule } from '../types';
-import { useAuth } from '../contexts/AuthContext';
+import React, { useEffect, useState } from "react";
+import { Calendar as CalendarIcon, Clock, Plus, User } from "lucide-react";
+import { DashboardLayout } from "../components/DashboardLayout";
+import { useAuth } from "../contexts/AuthContext";
+import { useGymData } from "../contexts/GymDataContext";
+import { Schedule } from "../types";
+
+const API_BASE_URL = "http://localhost:3000";
+
+type ApiUser = {
+  id?: number | string;
+  fullName?: string;
+  full_name?: string;
+  name?: string;
+};
+
+type ApiMember = {
+  id?: number | string;
+  fullName?: string;
+  full_name?: string;
+  name?: string;
+  user?: ApiUser;
+};
+
+type ApiSchedule = {
+  id?: number | string;
+  memberId?: number | string;
+  trainerId?: number | string;
+  member?: ApiMember;
+  trainer?: ApiUser;
+  type?: string;
+  startTime?: string;
+  start_time?: string;
+  endTime?: string;
+  end_time?: string;
+  status?: string;
+  notes?: string;
+};
+
+type ApiTrainerProfile = {
+  id?: number | string;
+  userId?: number | string;
+  user?: ApiUser;
+};
+
+type ScheduleForm = {
+  memberId: string;
+  trainerId: string;
+  type: Schedule["type"];
+  date: string;
+  startTime: string;
+  endTime: string;
+  notes: string;
+};
+
+const emptyScheduleForm = (): ScheduleForm => ({
+  memberId: "",
+  trainerId: "",
+  type: "pt",
+  date: new Date().toISOString().slice(0, 10),
+  startTime: "",
+  endTime: "",
+  notes: "",
+});
+
+const requestJson = async <T,>(
+  path: string,
+  options?: RequestInit,
+): Promise<T> => {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...options?.headers,
+    },
+  });
+  const responseText = await response.text();
+
+  if (!response.ok) {
+    throw new Error(responseText || `Request failed with ${response.status}`);
+  }
+
+  return responseText ? (JSON.parse(responseText) as T) : (undefined as T);
+};
+
+const normalizeScheduleType = (type?: string): Schedule["type"] => {
+  const normalized = type?.toLowerCase();
+  if (normalized === "personal" || normalized === "pt" || normalized === "class") {
+    return normalized;
+  }
+  return "pt";
+};
+
+const normalizeScheduleStatus = (status?: string): Schedule["status"] => {
+  if (status === "completed" || status === "cancelled") return status;
+  return "scheduled";
+};
+
+const getTime = (value?: string) => {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value.slice(11, 16);
+  return date.toLocaleTimeString("vi-VN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+};
+
+const getDate = (value?: string) => {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value.slice(0, 10);
+  return date.toISOString().slice(0, 10);
+};
+
+const getMemberName = (member?: ApiMember) =>
+  member?.fullName ??
+  member?.full_name ??
+  member?.name ??
+  member?.user?.fullName ??
+  member?.user?.full_name ??
+  member?.user?.name ??
+  "";
+
+const getUserName = (user?: ApiUser) =>
+  user?.fullName ?? user?.full_name ?? user?.name ?? "";
+
+const mapApiSchedule = (schedule: ApiSchedule): Schedule => ({
+  id: String(schedule.id ?? ""),
+  memberId: String(schedule.memberId ?? schedule.member?.id ?? ""),
+  memberName: getMemberName(schedule.member),
+  trainerId:
+    schedule.trainerId !== undefined
+      ? String(schedule.trainerId)
+      : schedule.trainer?.id !== undefined
+        ? String(schedule.trainer.id)
+        : undefined,
+  trainerName: getUserName(schedule.trainer),
+  date: getDate(schedule.startTime ?? schedule.start_time),
+  startTime: getTime(schedule.startTime ?? schedule.start_time),
+  endTime: getTime(schedule.endTime ?? schedule.end_time),
+  type: normalizeScheduleType(schedule.type),
+  status: normalizeScheduleStatus(schedule.status),
+  notes: schedule.notes,
+});
 
 export const Schedules: React.FC = () => {
   const { user } = useAuth();
-  const [schedules] = useState<Schedule[]>(mockSchedules);
-  const [selectedDate, setSelectedDate] = useState<string>(
-    new Date().toISOString().slice(0, 10)
+  const { members } = useGymData();
+  const isManager = user?.role === "manager";
+  const isTrainer = user?.role === "trainer";
+  const isReadOnlySchedule = isManager || isTrainer;
+  const [schedules, setSchedules] = useState<Schedule[]>([]);
+  const [trainers, setTrainers] = useState<ApiTrainerProfile[]>([]);
+  const [selectedDate, setSelectedDate] = useState(
+    new Date().toISOString().slice(0, 10),
   );
   const [showModal, setShowModal] = useState(false);
-
-  const filteredSchedules = schedules.filter(
-    (schedule) => schedule.date === selectedDate
+  const [scheduleForm, setScheduleForm] = useState<ScheduleForm>(
+    emptyScheduleForm,
   );
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'scheduled':
-        return 'bg-blue-100 text-blue-800';
-      case 'completed':
-        return 'bg-green-100 text-green-800';
-      case 'cancelled':
-        return 'bg-red-100 text-red-800';
-      default:
-        return 'bg-gray-100 text-gray-800';
+  useEffect(() => {
+    let isMounted = true;
+
+    Promise.allSettled([
+      requestJson<unknown>("/training-schedules"),
+      requestJson<unknown>("/trainer-profiles"),
+    ]).then(([scheduleResult, trainerResult]) => {
+      if (!isMounted) return;
+
+      if (scheduleResult.status === "fulfilled" && Array.isArray(scheduleResult.value)) {
+        setSchedules(scheduleResult.value.map((item) => mapApiSchedule(item as ApiSchedule)));
+      } else {
+        setSchedules([]);
+      }
+
+      if (trainerResult.status === "fulfilled" && Array.isArray(trainerResult.value)) {
+        setTrainers(trainerResult.value as ApiTrainerProfile[]);
+      } else {
+        setTrainers([]);
+      }
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!scheduleForm.memberId && members[0]) {
+      setScheduleForm((current) => ({ ...current, memberId: members[0].id }));
     }
+  }, [members, scheduleForm.memberId]);
+
+  const visibleSchedules = isTrainer
+    ? schedules.filter(
+        (schedule) =>
+          schedule.trainerId === user?.id || schedule.trainerName === user?.name,
+      )
+    : schedules;
+  const filteredSchedules = visibleSchedules.filter(
+    (schedule) => schedule.date === selectedDate,
+  );
+
+  const handleCreateSchedule = async (event: React.FormEvent) => {
+    event.preventDefault();
+
+    try {
+      const apiSchedule = await requestJson<unknown>("/training-schedules", {
+        method: "POST",
+        body: JSON.stringify({
+          memberId: Number(scheduleForm.memberId),
+          trainerId: scheduleForm.trainerId
+            ? Number(scheduleForm.trainerId)
+            : undefined,
+          type: scheduleForm.type,
+          startTime: `${scheduleForm.date}T${scheduleForm.startTime}:00`,
+          endTime: `${scheduleForm.date}T${scheduleForm.endTime}:00`,
+          notes: scheduleForm.notes,
+          status: "scheduled",
+        }),
+      });
+
+      if (typeof apiSchedule !== "object" || apiSchedule === null) {
+        throw new Error("API /training-schedules khong tra ve du lieu hop le");
+      }
+
+      setSchedules((current) => [mapApiSchedule(apiSchedule as ApiSchedule), ...current]);
+      setShowModal(false);
+      setScheduleForm({
+        ...emptyScheduleForm(),
+        memberId: members[0]?.id ?? "",
+        date: selectedDate,
+      });
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : "Khong the dat lich!");
+    }
+  };
+
+  const updateScheduleStatus = async (
+    schedule: Schedule,
+    status: Schedule["status"],
+  ) => {
+    const apiSchedule = await requestJson<unknown>(`/training-schedules/${schedule.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ status }),
+    });
+    const updatedSchedule =
+      typeof apiSchedule === "object" && apiSchedule !== null
+        ? mapApiSchedule(apiSchedule as ApiSchedule)
+        : { ...schedule, status };
+
+    setSchedules((current) =>
+      current.map((item) => (item.id === schedule.id ? updatedSchedule : item)),
+    );
+  };
+
+  const getStatusColor = (status: string) => {
+    if (status === "completed") return "bg-green-100 text-green-800";
+    if (status === "cancelled") return "bg-red-100 text-red-800";
+    return "bg-blue-100 text-blue-800";
   };
 
   const getStatusText = (status: string) => {
-    switch (status) {
-      case 'scheduled':
-        return 'Đã lên lịch';
-      case 'completed':
-        return 'Hoàn thành';
-      case 'cancelled':
-        return 'Đã hủy';
-      default:
-        return status;
-    }
+    if (status === "completed") return "Hoàn thành";
+    if (status === "cancelled") return "Đã hủy";
+    return "Đã lên lịch";
   };
 
   const getTypeText = (type: string) => {
-    switch (type) {
-      case 'personal':
-        return 'Cá nhân';
-      case 'pt':
-        return 'PT';
-      case 'class':
-        return 'Lớp học';
-      default:
-        return type;
-    }
+    if (type === "personal") return "Cá nhân";
+    if (type === "class") return "Lớp học";
+    return "PT";
   };
 
   const getTypeColor = (type: string) => {
-    switch (type) {
-      case 'personal':
-        return 'bg-purple-100 text-purple-800';
-      case 'pt':
-        return 'bg-orange-100 text-orange-800';
-      case 'class':
-        return 'bg-indigo-100 text-indigo-800';
-      default:
-        return 'bg-gray-100 text-gray-800';
-    }
+    if (type === "personal") return "bg-purple-100 text-purple-800";
+    if (type === "class") return "bg-indigo-100 text-indigo-800";
+    return "bg-orange-100 text-orange-800";
   };
 
   return (
@@ -74,64 +286,32 @@ export const Schedules: React.FC = () => {
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">Lịch Tập</h1>
+            <h1 className="text-3xl font-bold text-gray-900">Lịch tập</h1>
             <p className="text-gray-600 mt-1">
-              Quản lý lịch tập luyện và đặt lịch
+              Quản lý lịch tập luyện và đặt lịch từ dữ liệu hệ thống
             </p>
           </div>
-          <button
-            onClick={() => setShowModal(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-          >
-            <Plus size={20} />
-            Đặt Lịch Mới
-          </button>
+          {!isReadOnlySchedule && (
+            <button
+              onClick={() => setShowModal(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              <Plus size={20} />
+              Đặt lịch mới
+            </button>
+          )}
         </div>
 
         <div className="bg-white rounded-lg shadow p-6">
           <div className="flex items-center gap-4 mb-6">
-            <div className="flex items-center gap-2">
-              <CalendarIcon size={20} className="text-gray-600" />
-              <label className="text-sm font-medium text-gray-700">
-                Chọn ngày:
-              </label>
-            </div>
+            <CalendarIcon size={20} className="text-gray-600" />
+            <label className="text-sm font-medium text-gray-700">Chọn ngày:</label>
             <input
               type="date"
               value={selectedDate}
               onChange={(e) => setSelectedDate(e.target.value)}
               className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
-            <div className="ml-auto flex gap-2">
-              <button
-                onClick={() => {
-                  const date = new Date(selectedDate);
-                  date.setDate(date.getDate() - 1);
-                  setSelectedDate(date.toISOString().slice(0, 10));
-                }}
-                className="px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
-              >
-                ← Trước
-              </button>
-              <button
-                onClick={() =>
-                  setSelectedDate(new Date().toISOString().slice(0, 10))
-                }
-                className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-              >
-                Hôm nay
-              </button>
-              <button
-                onClick={() => {
-                  const date = new Date(selectedDate);
-                  date.setDate(date.getDate() + 1);
-                  setSelectedDate(date.toISOString().slice(0, 10));
-                }}
-                className="px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
-              >
-                Sau →
-              </button>
-            </div>
           </div>
 
           <div className="space-y-3">
@@ -146,29 +326,27 @@ export const Schedules: React.FC = () => {
                   key={schedule.id}
                   className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow"
                 >
-                  <div className="flex items-start justify-between">
+                  <div className="flex items-start justify-between gap-4">
                     <div className="flex-1">
                       <div className="flex items-center gap-3 mb-2">
                         <span
                           className={`px-2 py-1 text-xs font-semibold rounded-full ${getTypeColor(
-                            schedule.type
+                            schedule.type,
                           )}`}
                         >
                           {getTypeText(schedule.type)}
                         </span>
                         <span
                           className={`px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(
-                            schedule.status
+                            schedule.status,
                           )}`}
                         >
                           {getStatusText(schedule.status)}
                         </span>
                       </div>
-
                       <h3 className="font-bold text-lg text-gray-900 mb-2">
                         {schedule.memberName}
                       </h3>
-
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm text-gray-600">
                         <div className="flex items-center gap-2">
                           <Clock size={16} />
@@ -182,170 +360,173 @@ export const Schedules: React.FC = () => {
                             <span>PT: {schedule.trainerName}</span>
                           </div>
                         )}
-                        {schedule.notes && (
-                          <div className="flex items-center gap-2">
-                            <span className="text-gray-500">{schedule.notes}</span>
-                          </div>
-                        )}
+                        {schedule.notes && <span>{schedule.notes}</span>}
                       </div>
                     </div>
-
-                    <div className="flex gap-2">
-                      {schedule.status === 'scheduled' && (
-                        <>
-                          <button className="px-3 py-1 text-sm bg-green-50 text-green-700 rounded hover:bg-green-100">
-                            Hoàn thành
-                          </button>
-                          <button className="px-3 py-1 text-sm bg-red-50 text-red-700 rounded hover:bg-red-100">
-                            Hủy
-                          </button>
-                        </>
-                      )}
-                    </div>
+                    {!isReadOnlySchedule && schedule.status === "scheduled" && (
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => updateScheduleStatus(schedule, "completed")}
+                          className="px-3 py-1 text-sm bg-green-50 text-green-700 rounded hover:bg-green-100"
+                        >
+                          Hoàn thành
+                        </button>
+                        <button
+                          onClick={() => updateScheduleStatus(schedule, "cancelled")}
+                          className="px-3 py-1 text-sm bg-red-50 text-red-700 rounded hover:bg-red-100"
+                        >
+                          Hủy
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
               ))
             )}
           </div>
         </div>
-
-        <div className="bg-white rounded-lg shadow p-6">
-          <h3 className="text-lg font-bold text-gray-900 mb-4">
-            Lịch Tập Trong Tuần
-          </h3>
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-gray-50 border-b border-gray-200">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                    Ngày
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                    Giờ
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                    Hội Viên
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {schedules.map((schedule) => (
-                  <tr key={schedule.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {new Date(schedule.date).toLocaleDateString('vi-VN')}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {schedule.startTime} - {schedule.endTime}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                      {schedule.memberName}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
       </div>
 
-      {showModal && (
+      {showModal && !isReadOnlySchedule && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 max-w-2xl w-full mx-4">
             <div className="flex items-center justify-between mb-6">
-              <h2 className="text-2xl font-bold">Đặt Lịch Tập Mới</h2>
+              <h2 className="text-2xl font-bold">Đặt lịch tập mới</h2>
               <button
                 onClick={() => setShowModal(false)}
                 className="text-gray-500 hover:text-gray-700"
               >
-                ✕
+                x
               </button>
             </div>
 
-            <form className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Chọn hội viên
-                </label>
-                <select className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-                  <option>Nguyễn Văn An</option>
-                  <option>Trần Thị Bình</option>
-                  <option>Lê Hoàng Cường</option>
+            <form onSubmit={handleCreateSchedule} className="space-y-4">
+              <FormField label="Chọn hội viên">
+                <select
+                  required
+                  value={scheduleForm.memberId}
+                  onChange={(event) =>
+                    setScheduleForm((current) => ({
+                      ...current,
+                      memberId: event.target.value,
+                    }))
+                  }
+                  className={inputClass}
+                >
+                  {members.map((member) => (
+                    <option key={member.id} value={member.id}>
+                      {member.name}
+                    </option>
+                  ))}
                 </select>
+              </FormField>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <FormField label="Loại lịch tập">
+                  <select
+                    value={scheduleForm.type}
+                    onChange={(event) =>
+                      setScheduleForm((current) => ({
+                        ...current,
+                        type: event.target.value as Schedule["type"],
+                      }))
+                    }
+                    className={inputClass}
+                  >
+                    <option value="personal">Tập cá nhân</option>
+                    <option value="pt">Tập với PT</option>
+                    <option value="class">Lớp học</option>
+                  </select>
+                </FormField>
+                <FormField label="Huấn luyện viên">
+                  <select
+                    value={scheduleForm.trainerId}
+                    onChange={(event) =>
+                      setScheduleForm((current) => ({
+                        ...current,
+                        trainerId: event.target.value,
+                      }))
+                    }
+                    className={inputClass}
+                  >
+                    <option value="">Không chọn</option>
+                    {trainers.map((trainer) => (
+                      <option
+                        key={trainer.id}
+                        value={trainer.userId ?? trainer.user?.id ?? ""}
+                      >
+                        {getUserName(trainer.user) || trainer.userId || trainer.id}
+                      </option>
+                    ))}
+                  </select>
+                </FormField>
               </div>
 
-              {user?.role !== 'trainer' && (
-                <>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Loại lịch tập
-                    </label>
-                    <select className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-                      <option value="personal">Tập cá nhân</option>
-                      <option value="pt">Tập với PT</option>
-                      <option value="class">Lớp học</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Huấn luyện viên (nếu có)
-                    </label>
-                    <select className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-                      <option value="">Không chọn</option>
-                      <option>Phạm Minh Tuấn</option>
-                      <option>Võ Thị Mai</option>
-                    </select>
-                  </div>
-                </>
-              )}
-
-              <div className="grid grid-cols-3 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Ngày tập
-                  </label>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <FormField label="Ngày tập">
                   <input
+                    required
                     type="date"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    value={scheduleForm.date}
+                    onChange={(event) =>
+                      setScheduleForm((current) => ({
+                        ...current,
+                        date: event.target.value,
+                      }))
+                    }
+                    className={inputClass}
                   />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Giờ bắt đầu
-                  </label>
+                </FormField>
+                <FormField label="Giờ bắt đầu">
                   <input
+                    required
                     type="time"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    value={scheduleForm.startTime}
+                    onChange={(event) =>
+                      setScheduleForm((current) => ({
+                        ...current,
+                        startTime: event.target.value,
+                      }))
+                    }
+                    className={inputClass}
                   />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Giờ kết thúc
-                  </label>
+                </FormField>
+                <FormField label="Giờ kết thúc">
                   <input
+                    required
                     type="time"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    value={scheduleForm.endTime}
+                    onChange={(event) =>
+                      setScheduleForm((current) => ({
+                        ...current,
+                        endTime: event.target.value,
+                      }))
+                    }
+                    className={inputClass}
                   />
-                </div>
+                </FormField>
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Ghi chú
-                </label>
+              <FormField label="Ghi chú">
                 <textarea
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  value={scheduleForm.notes}
+                  onChange={(event) =>
+                    setScheduleForm((current) => ({
+                      ...current,
+                      notes: event.target.value,
+                    }))
+                  }
+                  className={inputClass}
                   rows={3}
-                  placeholder="Ghi chú về buổi tập..."
-                ></textarea>
-              </div>
+                />
+              </FormField>
 
               <div className="flex gap-3 pt-4">
                 <button
                   type="submit"
                   className="flex-1 bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 transition-colors"
                 >
-                  Đặt Lịch
+                  Đặt lịch
                 </button>
                 <button
                   type="button"
@@ -362,3 +543,19 @@ export const Schedules: React.FC = () => {
     </DashboardLayout>
   );
 };
+
+const inputClass =
+  "w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500";
+
+const FormField = ({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) => (
+  <label className="block">
+    <span className="block text-sm font-medium text-gray-700 mb-1">{label}</span>
+    {children}
+  </label>
+);

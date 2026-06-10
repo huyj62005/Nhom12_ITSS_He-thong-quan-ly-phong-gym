@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { AlertCircle, Dumbbell, Lock, Mail } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
-import { Dumbbell, Mail, Lock, AlertCircle } from "lucide-react";
 
 export const Login: React.FC = () => {
   const [email, setEmail] = useState("");
@@ -17,22 +17,18 @@ export const Login: React.FC = () => {
     setLoading(true);
 
     try {
-      await login(email, password);
-      navigate("/dashboard");
-    } catch (err) {
+      const loggedInUser = await login(email, password);
+      navigate(
+        loggedInUser.role === "manager" || loggedInUser.role === "cashier"
+          ? "/reports"
+          : "/dashboard",
+      );
+    } catch {
       setError("Email hoặc mật khẩu không đúng");
     } finally {
       setLoading(false);
     }
   };
-
-  const quickLogins = [
-    { email: "admin@gym.com", password: "admin123", role: "Admin" },
-    { email: "manager@gym.com", password: "manager123", role: "Manager" },
-    { email: "cashier@gym.com", password: "cashier123", role: "Cashier" },
-    { email: "trainer@gym.com", password: "trainer123", role: "Trainer" },
-    { email: "member@gym.com", password: "member123", role: "Member" },
-  ];
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
@@ -88,7 +84,7 @@ export const Login: React.FC = () => {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  placeholder="••••••••"
+                  placeholder="********"
                   required
                 />
               </div>
@@ -102,26 +98,6 @@ export const Login: React.FC = () => {
               {loading ? "Đang đăng nhập..." : "Đăng nhập"}
             </button>
           </form>
-
-          <div className="mt-8 pt-6 border-t border-gray-200">
-            <p className="text-sm text-gray-600 mb-3 text-center">
-              Demo tài khoản:
-            </p>
-            <div className="grid grid-cols-2 gap-2">
-              {quickLogins.map((account) => (
-                <button
-                  key={account.email}
-                  onClick={() => {
-                    setEmail(account.email);
-                    setPassword(account.password);
-                  }}
-                  className="text-xs px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
-                >
-                  {account.role}
-                </button>
-              ))}
-            </div>
-          </div>
         </div>
 
         <p className="text-center text-gray-600 mt-6 text-sm">
