@@ -20,6 +20,12 @@ const emptyPackageForm: PackageForm = {
   type: "monthly",
 };
 
+const parseDescriptionLines = (description: string) =>
+  description
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
 export const Packages: React.FC = () => {
   const { packages, addPackage, updatePackage, deletePackage } = useGymData();
   const [showModal, setShowModal] = useState(false);
@@ -82,7 +88,8 @@ export const Packages: React.FC = () => {
     setSelectedPackage(pkg);
     setPackageForm({
       name: pkg.name,
-      description: pkg.description,
+      description:
+        pkg.features.length > 0 ? pkg.features.join("\n") : pkg.description,
       duration: String(pkg.duration),
       price: String(pkg.price),
       type: pkg.type,
@@ -99,17 +106,22 @@ export const Packages: React.FC = () => {
   const buildPackagePayload = (
     id: string,
     basePackage?: MembershipPackage,
-  ): MembershipPackage => ({
-    id,
-    name: packageForm.name.trim(),
-    description: packageForm.description.trim(),
-    duration: Number(packageForm.duration),
-    price: Number(packageForm.price),
-    type: packageForm.type,
-    features: basePackage?.features ?? [],
-    isActive: basePackage?.isActive ?? true,
-    createdAt: basePackage?.createdAt ?? new Date().toISOString().slice(0, 10),
-  });
+  ): MembershipPackage => {
+    const descriptionLines = parseDescriptionLines(packageForm.description);
+
+    return {
+      id,
+      name: packageForm.name.trim(),
+      description: descriptionLines.join("\n"),
+      duration: Number(packageForm.duration),
+      price: Number(packageForm.price),
+      type: packageForm.type,
+      features: descriptionLines,
+      isActive: basePackage?.isActive ?? true,
+      createdAt:
+        basePackage?.createdAt ?? new Date().toISOString().slice(0, 10),
+    };
+  };
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -211,19 +223,12 @@ export const Packages: React.FC = () => {
                 <h3 className="text-xl font-bold text-gray-900 mb-2">
                   {pkg.name}
                 </h3>
-                <p className="text-gray-600 text-sm mb-4">{pkg.description}</p>
 
-                <div className="mb-4">
-                  <div className="flex items-baseline gap-1">
-                    <span className="text-3xl font-bold text-gray-900">
-                      {formatCurrency(pkg.price)}
-                    </span>
-                  </div>
-                  <p className="text-sm text-gray-500">{pkg.duration} ngày</p>
-                </div>
-
-                <div className="space-y-2 mb-6">
-                  {pkg.features.map((feature, index) => (
+                <div className="space-y-2 mb-4">
+                  {(pkg.features.length > 0
+                    ? pkg.features
+                    : parseDescriptionLines(pkg.description)
+                  ).map((feature, index) => (
                     <div key={index} className="flex items-start gap-2">
                       <Check
                         size={16}
@@ -232,6 +237,15 @@ export const Packages: React.FC = () => {
                       <span className="text-sm text-gray-700">{feature}</span>
                     </div>
                   ))}
+                </div>
+
+                <div className="mb-4">
+                  <div className="flex items-baseline gap-1">
+                    <span className="text-3xl font-bold text-gray-900">
+                      {formatCurrency(pkg.price)}
+                    </span>
+                  </div>
+                  <p className="text-sm text-gray-500">{pkg.duration} ngày</p>
                 </div>
 
                 <button className="w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 transition-colors">
