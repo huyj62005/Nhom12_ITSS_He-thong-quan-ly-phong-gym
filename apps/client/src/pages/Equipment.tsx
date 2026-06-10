@@ -155,7 +155,7 @@ export const EquipmentPage: React.FC = () => {
       case "available":
         return "bg-green-100 text-green-800";
       case "maintenance":
-        return "bg-red-100 text-red-800";
+        return "bg-yellow-100 text-yellow-800";
       case "broken":
         return "bg-red-100 text-red-800";
       default:
@@ -189,7 +189,7 @@ export const EquipmentPage: React.FC = () => {
       case "available":
         return <CheckCircle size={20} className="text-green-600" />;
       case "maintenance":
-        return <Wrench size={20} className="text-red-600" />;
+        return <Wrench size={20} className="text-yellow-600" />;
       case "broken":
         return <AlertTriangle size={20} className="text-red-600" />;
       default:
@@ -335,15 +335,15 @@ export const EquipmentPage: React.FC = () => {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <div className="bg-white rounded-lg shadow p-6">
             <div className="flex items-center justify-between mb-2">
-              <p className="text-gray-600">Sẵn sàng</p>
+              <p className="text-green-600">Sẵn sàng</p>
               <CheckCircle className="text-green-600" size={24} />
             </div>
             <p className="text-3xl font-bold text-gray-900">{availableCount}</p>
           </div>
           <div className="bg-white rounded-lg shadow p-6">
             <div className="flex items-center justify-between mb-2">
-              <p className="text-red-600">Đang bảo trì</p>
-              <Wrench className="text-red-600" size={24} />
+              <p className="text-yellow-600">Đang bảo trì</p>
+              <Wrench className="text-yellow-600" size={24} />
             </div>
             <p className="text-3xl font-bold text-gray-900">
               {maintenanceCount}
@@ -351,7 +351,7 @@ export const EquipmentPage: React.FC = () => {
           </div>
           <div className="bg-white rounded-lg shadow p-6">
             <div className="flex items-center justify-between mb-2">
-              <p className="text-gray-600">Hỏng hóc</p>
+              <p className="text-red-600">Hỏng hóc</p>
               <AlertTriangle className="text-red-600" size={24} />
             </div>
             <p className="text-3xl font-bold text-gray-900">{brokenCount}</p>
