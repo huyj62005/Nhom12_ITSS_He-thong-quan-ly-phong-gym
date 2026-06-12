@@ -150,6 +150,7 @@ export const Schedules: React.FC = () => {
   const { members } = useGymData();
   const isManager = user?.role === "manager";
   const isTrainer = user?.role === "trainer";
+  const isMember = user?.role === "member";
   const isReadOnlySchedule = isManager || isTrainer;
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [trainers, setTrainers] = useState<ApiTrainerProfile[]>([]);
@@ -160,6 +161,34 @@ export const Schedules: React.FC = () => {
   const [scheduleForm, setScheduleForm] = useState<ScheduleForm>(
     emptyScheduleForm,
   );
+  const currentMember = members.find(
+    (member) =>
+      member.userId === user?.id ||
+      member.email === user?.email ||
+      member.name === user?.name,
+  );
+  const memberHasAssignedPt =
+    currentMember?.hasActivePtPackage === true &&
+    Boolean(currentMember.trainerId);
+  const selectableMembers = isMember && currentMember ? [currentMember] : members;
+  const assignedTrainer = currentMember?.trainerId
+    ? {
+        id: currentMember.trainerId,
+        name: currentMember.trainerName || currentMember.trainerId,
+      }
+    : null;
+  const availableTrainers =
+    isMember && scheduleForm.type === "pt"
+      ? assignedTrainer
+        ? [
+            {
+              id: assignedTrainer.id,
+              userId: assignedTrainer.id,
+              user: { id: assignedTrainer.id, fullName: assignedTrainer.name },
+            },
+          ]
+        : []
+      : trainers;
 
   useEffect(() => {
     let isMounted = true;
@@ -189,10 +218,27 @@ export const Schedules: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    if (!scheduleForm.memberId && members[0]) {
-      setScheduleForm((current) => ({ ...current, memberId: members[0].id }));
+    if (isMember && currentMember && scheduleForm.memberId !== currentMember.id) {
+      setScheduleForm((current) => ({ ...current, memberId: currentMember.id }));
+      return;
     }
-  }, [members, scheduleForm.memberId]);
+
+    if (!scheduleForm.memberId && selectableMembers[0]) {
+      setScheduleForm((current) => ({
+        ...current,
+        memberId: selectableMembers[0].id,
+      }));
+    }
+  }, [currentMember, isMember, scheduleForm.memberId, selectableMembers]);
+
+  useEffect(() => {
+    if (isMember && scheduleForm.type === "pt" && currentMember?.trainerId) {
+      setScheduleForm((current) => ({
+        ...current,
+        trainerId: currentMember.trainerId ?? "",
+      }));
+    }
+  }, [currentMember?.trainerId, isMember, scheduleForm.type]);
 
   const visibleSchedules = isTrainer
     ? schedules.filter(
@@ -206,15 +252,27 @@ export const Schedules: React.FC = () => {
 
   const handleCreateSchedule = async (event: React.FormEvent) => {
     event.preventDefault();
+    const trainerId =
+      isMember && scheduleForm.type === "pt"
+        ? currentMember?.trainerId
+        : scheduleForm.trainerId;
+
+    if (isMember && scheduleForm.type === "pt" && !memberHasAssignedPt) {
+      window.alert(
+        "Bạn chưa được phân công PT. Vui lòng đăng ký gói PT hoặc liên hệ quản lý.",
+      );
+      return;
+    }
 
     try {
       const apiSchedule = await requestJson<unknown>("/training-schedules", {
         method: "POST",
         body: JSON.stringify({
-          memberId: Number(scheduleForm.memberId),
-          trainerId: scheduleForm.trainerId
-            ? Number(scheduleForm.trainerId)
-            : undefined,
+          memberId: Number(isMember ? currentMember?.id : scheduleForm.memberId),
+          trainerId:
+            scheduleForm.type === "pt" && trainerId
+              ? Number(trainerId)
+              : undefined,
           type: scheduleForm.type,
           startTime: `${scheduleForm.date}T${scheduleForm.startTime}:00`,
           endTime: `${scheduleForm.date}T${scheduleForm.endTime}:00`,
@@ -231,7 +289,7 @@ export const Schedules: React.FC = () => {
       setShowModal(false);
       setScheduleForm({
         ...emptyScheduleForm(),
-        memberId: members[0]?.id ?? "",
+        memberId: selectableMembers[0]?.id ?? "",
         date: selectedDate,
       });
     } catch (error) {
@@ -413,7 +471,7 @@ export const Schedules: React.FC = () => {
                   }
                   className={inputClass}
                 >
-                  {members.map((member) => (
+                  {selectableMembers.map((member) => (
                     <option key={member.id} value={member.id}>
                       {member.name}
                     </option>
@@ -438,9 +496,14 @@ export const Schedules: React.FC = () => {
                     <option value="class">Lớp học</option>
                   </select>
                 </FormField>
-                <FormField label="Huấn luyện viên">
+                {!(isMember && scheduleForm.type === "pt" && !memberHasAssignedPt) && (
+                  <FormField label="Huấn luyện viên">
                   <select
-                    value={scheduleForm.trainerId}
+                    value={
+                      isMember && scheduleForm.type === "pt"
+                        ? assignedTrainer?.id ?? ""
+                        : scheduleForm.trainerId
+                    }
                     onChange={(event) =>
                       setScheduleForm((current) => ({
                         ...current,
@@ -448,9 +511,12 @@ export const Schedules: React.FC = () => {
                       }))
                     }
                     className={inputClass}
+                    required={isMember && scheduleForm.type === "pt"}
                   >
-                    <option value="">Không chọn</option>
-                    {trainers.map((trainer) => (
+                    {!(isMember && scheduleForm.type === "pt") && (
+                      <option value="">Không chọn</option>
+                    )}
+                    {availableTrainers.map((trainer) => (
                       <option
                         key={trainer.id}
                         value={trainer.userId ?? trainer.user?.id ?? ""}
@@ -459,7 +525,8 @@ export const Schedules: React.FC = () => {
                       </option>
                     ))}
                   </select>
-                </FormField>
+                  </FormField>
+                )}
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -521,9 +588,16 @@ export const Schedules: React.FC = () => {
                 />
               </FormField>
 
+              {isMember && scheduleForm.type === "pt" && !memberHasAssignedPt && (
+                <p className="text-sm text-gray-500">
+                  Bạn chưa được phân công PT. Vui lòng đăng ký gói PT hoặc liên hệ quản lý.
+                </p>
+              )}
+
               <div className="flex gap-3 pt-4">
                 <button
                   type="submit"
+                  disabled={isMember && scheduleForm.type === "pt" && !memberHasAssignedPt}
                   className="flex-1 bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 transition-colors"
                 >
                   Đặt lịch

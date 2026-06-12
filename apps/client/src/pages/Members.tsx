@@ -909,7 +909,14 @@ export const Members: React.FC = () => {
                       : "-"
                   }
                 />
-                <InfoRow label="HLV phụ trách" value="Không có" />
+                <InfoRow
+                  label="HLV phụ trách"
+                  value={
+                    viewMember.currentPackage?.type === "pt"
+                      ? viewMember.trainerName || "Không có"
+                      : "Không áp dụng"
+                  }
+                />
               </div>
             </div>
             <div className="p-6 pt-0">

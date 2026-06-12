@@ -2,9 +2,11 @@ import React, { useEffect, useMemo, useState } from "react";
 import {
   Activity,
   Calendar,
+  Edit3,
   TrendingUp,
   User,
   Weight,
+  X,
 } from "lucide-react";
 import {
   CartesianGrid,
@@ -17,6 +19,7 @@ import {
   YAxis,
 } from "recharts";
 import { DashboardLayout } from "../components/DashboardLayout";
+import { useAuth } from "../contexts/AuthContext";
 import { useGymData } from "../contexts/GymDataContext";
 
 const API_BASE_URL = "http://localhost:3000";
@@ -24,6 +27,7 @@ const API_BASE_URL = "http://localhost:3000";
 type ApiProgress = {
   id?: number | string;
   memberId?: number | string;
+  member_id?: number | string;
   date?: string;
   recordedAt?: string;
   weight?: number | string;
@@ -59,8 +63,33 @@ type ProgressItem = {
   }>;
 };
 
-const requestJson = async <T,>(path: string): Promise<T> => {
-  const response = await fetch(`${API_BASE_URL}${path}`);
+type ProgressForm = {
+  date: string;
+  weight: string;
+  bodyFat: string;
+  muscleMass: string;
+  notes: string;
+};
+
+const emptyProgressForm = (): ProgressForm => ({
+  date: new Date().toISOString().slice(0, 10),
+  weight: "",
+  bodyFat: "",
+  muscleMass: "",
+  notes: "",
+});
+
+const requestJson = async <T,>(
+  path: string,
+  options?: RequestInit,
+): Promise<T> => {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...options?.headers,
+    },
+  });
   const responseText = await response.text();
 
   if (!response.ok) {
@@ -80,7 +109,7 @@ const toDate = (value?: string) => {
 
 const mapApiProgress = (item: ApiProgress): ProgressItem => ({
   id: String(item.id ?? ""),
-  memberId: String(item.memberId ?? ""),
+  memberId: String(item.memberId ?? item.member_id ?? ""),
   date: toDate(item.date ?? item.recordedAt),
   weight: Number(item.weight ?? item.bodyWeight ?? 0),
   bodyFat: Number(item.bodyFat ?? item.bodyFatPercent ?? 0),
@@ -96,15 +125,44 @@ const mapApiProgress = (item: ApiProgress): ProgressItem => ({
 });
 
 export const Progress: React.FC = () => {
+  const { user } = useAuth();
   const { members } = useGymData();
   const [progress, setProgress] = useState<ProgressItem[]>([]);
   const [selectedMember, setSelectedMember] = useState("");
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [progressForm, setProgressForm] = useState<ProgressForm>(
+    emptyProgressForm,
+  );
+  const [editingProgressId, setEditingProgressId] = useState("");
+  const [isSavingProgress, setIsSavingProgress] = useState(false);
+  const isTrainer = user?.role === "trainer";
+  const isMember = user?.role === "member";
+  const currentMember = members.find(
+    (member) =>
+      member.userId === user?.id ||
+      member.email === user?.email ||
+      member.name === user?.name,
+  );
+  const memberHasActivePtPackage =
+    currentMember?.hasActivePtPackage === true &&
+    Boolean(currentMember.trainerId);
+  const visibleMembers = isTrainer
+    ? members.filter(
+        (member) =>
+          member.hasActivePtPackage === true &&
+          member.trainerId === user?.id,
+      )
+    : isMember
+      ? memberHasActivePtPackage && currentMember
+        ? [currentMember]
+        : []
+      : members;
 
   useEffect(() => {
-    if (!selectedMember && members[0]) {
-      setSelectedMember(members[0].id);
+    if (!visibleMembers.some((member) => member.id === selectedMember)) {
+      setSelectedMember(visibleMembers[0]?.id ?? "");
     }
-  }, [members, selectedMember]);
+  }, [visibleMembers, selectedMember]);
 
   useEffect(() => {
     let isMounted = true;
@@ -145,6 +203,63 @@ export const Progress: React.FC = () => {
     [memberProgress],
   );
 
+  const openProgressEditor = () => {
+    setEditingProgressId(latestProgress?.id ?? "");
+    setProgressForm({
+      date: latestProgress?.date || new Date().toISOString().slice(0, 10),
+      weight: latestProgress ? String(latestProgress.weight) : "",
+      bodyFat: latestProgress ? String(latestProgress.bodyFat) : "",
+      muscleMass: latestProgress ? String(latestProgress.muscleMass) : "",
+      notes: latestProgress?.notes ?? "",
+    });
+    setShowEditModal(true);
+  };
+
+  const saveProgress = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!selectedMember || !isTrainer) return;
+
+    setIsSavingProgress(true);
+    try {
+      const payload = {
+        memberId: Number(selectedMember),
+        recordedAt: `${progressForm.date}T00:00:00`,
+        date: progressForm.date,
+        bodyWeight: Number(progressForm.weight || 0),
+        bodyFatPercent: Number(progressForm.bodyFat || 0),
+        muscleMass: Number(progressForm.muscleMass || 0),
+        evaluation: progressForm.notes,
+      };
+      const savedProgress = await requestJson<unknown>(
+        editingProgressId
+          ? `/training-progress/${editingProgressId}`
+          : "/training-progress",
+        {
+          method: editingProgressId ? "PATCH" : "POST",
+          body: JSON.stringify(payload),
+        },
+      );
+      const mappedProgress = mapApiProgress(savedProgress as ApiProgress);
+
+      setProgress((current) =>
+        editingProgressId
+          ? current.map((item) =>
+              item.id === editingProgressId ? mappedProgress : item,
+            )
+          : [mappedProgress, ...current],
+      );
+      setShowEditModal(false);
+    } catch (error) {
+      window.alert(
+        error instanceof Error
+          ? error.message
+          : "Khong the cap nhat tien do tap luyen",
+      );
+    } finally {
+      setIsSavingProgress(false);
+    }
+  };
+
   return (
     <DashboardLayout>
       <div className="space-y-6">
@@ -157,30 +272,58 @@ export const Progress: React.FC = () => {
               Theo dõi kết quả và tiến độ tập luyện từ dữ liệu hệ thống
             </p>
           </div>
+          {!isMember && (
           <div className="min-w-[300px]">
             <label className="block text-sm font-medium text-gray-700 mb-2">
               Chọn hội viên
             </label>
-            <div className="relative">
-              <User
-                className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400"
-                size={20}
-              />
-              <select
-                value={selectedMember}
-                onChange={(e) => setSelectedMember(e.target.value)}
-                className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-              >
-                {members.map((member) => (
-                  <option key={member.id} value={member.id}>
-                    {member.name}
-                  </option>
-                ))}
-              </select>
+            <div className="flex gap-2">
+              <div className="relative flex-1">
+                <User
+                  className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400"
+                  size={20}
+                />
+                <select
+                  value={selectedMember}
+                  onChange={(e) => setSelectedMember(e.target.value)}
+                  className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                >
+                  {visibleMembers.map((member) => (
+                    <option key={member.id} value={member.id}>
+                      {member.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {isTrainer && visibleMembers.length > 0 && (
+                <button
+                  type="button"
+                  onClick={openProgressEditor}
+                  className="h-[46px] w-[46px] inline-flex items-center justify-center rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 transition-colors"
+                  title="Chỉnh sửa tiến độ"
+                >
+                  <Edit3 size={18} />
+                </button>
+              )}
             </div>
           </div>
+          )}
         </div>
 
+        {isTrainer && visibleMembers.length === 0 && (
+          <div className="bg-white rounded-lg shadow p-6 text-sm text-gray-500">
+            Bạn chưa được phân công hội viên nào
+          </div>
+        )}
+
+        {isMember && !memberHasActivePtPackage && (
+          <div className="bg-white rounded-lg shadow p-6 text-sm text-gray-500">
+            Bạn cần đăng ký Gói PT để sử dụng chức năng theo dõi tiến độ tập luyện.
+          </div>
+        )}
+
+        {visibleMembers.length > 0 && (
+          <>
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
           <StatCard
             label="Cân nặng hiện tại"
@@ -262,7 +405,126 @@ export const Progress: React.FC = () => {
             )}
           </div>
         </div>
+          </>
+        )}
       </div>
+
+      {showEditModal && isTrainer && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg p-6 max-w-lg w-full">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-xl font-bold text-gray-900">
+                Chỉnh sửa tiến độ tập luyện
+              </h2>
+              <button
+                type="button"
+                onClick={() => setShowEditModal(false)}
+                className="text-gray-500 hover:text-gray-700"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <form onSubmit={saveProgress} className="space-y-4">
+              <FormField label="Ngày đánh dấu">
+                <input
+                  required
+                  type="date"
+                  value={progressForm.date}
+                  onChange={(event) =>
+                    setProgressForm((current) => ({
+                      ...current,
+                      date: event.target.value,
+                    }))
+                  }
+                  className={inputClass}
+                />
+              </FormField>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <FormField label="Cân nặng (kg)">
+                  <input
+                    required
+                    type="number"
+                    min="0"
+                    step="0.1"
+                    value={progressForm.weight}
+                    onChange={(event) =>
+                      setProgressForm((current) => ({
+                        ...current,
+                        weight: event.target.value,
+                      }))
+                    }
+                    className={inputClass}
+                  />
+                </FormField>
+                <FormField label="% mỡ">
+                  <input
+                    required
+                    type="number"
+                    min="0"
+                    step="0.1"
+                    value={progressForm.bodyFat}
+                    onChange={(event) =>
+                      setProgressForm((current) => ({
+                        ...current,
+                        bodyFat: event.target.value,
+                      }))
+                    }
+                    className={inputClass}
+                  />
+                </FormField>
+                <FormField label="Khối lượng cơ (kg)">
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.1"
+                    value={progressForm.muscleMass}
+                    onChange={(event) =>
+                      setProgressForm((current) => ({
+                        ...current,
+                        muscleMass: event.target.value,
+                      }))
+                    }
+                    className={inputClass}
+                  />
+                </FormField>
+              </div>
+
+              <FormField label="Ghi chú">
+                <textarea
+                  value={progressForm.notes}
+                  onChange={(event) =>
+                    setProgressForm((current) => ({
+                      ...current,
+                      notes: event.target.value,
+                    }))
+                  }
+                  className={inputClass}
+                  rows={3}
+                />
+              </FormField>
+
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="submit"
+                  disabled={isSavingProgress}
+                  className="flex-1 bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                >
+                  {isSavingProgress ? "Đang lưu..." : "Lưu thay đổi"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowEditModal(false)}
+                  className="flex-1 bg-gray-200 text-gray-700 py-2 rounded-lg hover:bg-gray-300 transition-colors"
+                >
+                  Hủy
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </DashboardLayout>
   );
 };
@@ -286,4 +548,20 @@ const StatCard = ({
     <p className="text-3xl font-bold text-gray-900">{value}</p>
     <p className="text-sm text-gray-600 mt-1">{hint}</p>
   </div>
+);
+
+const inputClass =
+  "w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500";
+
+const FormField = ({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) => (
+  <label className="block">
+    <span className="block text-sm font-medium text-gray-700 mb-1">{label}</span>
+    {children}
+  </label>
 );

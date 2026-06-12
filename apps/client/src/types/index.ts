@@ -31,6 +31,9 @@ export interface Member {
   joinDate: string;
   currentPackage?: MembershipPackage;
   packageExpiry?: string;
+  trainerId?: string;
+  trainerName?: string;
+  hasActivePtPackage?: boolean;
   avatar?: string;
 }
 

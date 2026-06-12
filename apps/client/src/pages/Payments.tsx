@@ -52,6 +52,50 @@ interface ToastState {
   type: "success" | "error";
 }
 
+const API_BASE_URL = "http://localhost:3000";
+
+type ApiUser = {
+  id?: number | string;
+  fullName?: string;
+  full_name?: string;
+  name?: string;
+  email?: string;
+};
+
+type ApiTrainerProfile = {
+  id?: number | string;
+  userId?: number | string;
+  user_id?: number | string;
+  user?: ApiUser;
+};
+
+type TrainerOption = {
+  id: string;
+  name: string;
+  email: string;
+};
+
+const requestJson = async <T,>(path: string): Promise<T> => {
+  const response = await fetch(`${API_BASE_URL}${path}`);
+  const responseText = await response.text();
+
+  if (!response.ok) {
+    throw new Error(responseText || `Request failed with ${response.status}`);
+  }
+
+  return responseText ? (JSON.parse(responseText) as T) : (undefined as T);
+};
+
+const mapTrainerOption = (trainer: ApiTrainerProfile): TrainerOption => ({
+  id: String(trainer.userId ?? trainer.user_id ?? trainer.user?.id ?? ""),
+  name:
+    trainer.user?.fullName ??
+    trainer.user?.full_name ??
+    trainer.user?.name ??
+    "PT",
+  email: trainer.user?.email ?? "",
+});
+
 export const Payments: React.FC = () => {
   const {
     members,
@@ -71,6 +115,8 @@ export const Payments: React.FC = () => {
   const [selectedMember, setSelectedMember] = useState<Member | null>(null);
   const [paymentAction, setPaymentAction] = useState<PaymentAction>("new");
   const [selectedPackageId, setSelectedPackageId] = useState("");
+  const [selectedTrainerId, setSelectedTrainerId] = useState("");
+  const [trainers, setTrainers] = useState<TrainerOption[]>([]);
   const [paymentMethod, setPaymentMethod] = useState<"cash" | "transfer">(
     "cash",
   );
@@ -95,6 +141,30 @@ export const Payments: React.FC = () => {
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    requestJson<unknown>("/trainer-profiles")
+      .then((apiTrainers) => {
+        if (!isMounted) return;
+        setTrainers(
+          Array.isArray(apiTrainers)
+            ? apiTrainers
+                .map((trainer) => mapTrainerOption(trainer as ApiTrainerProfile))
+                .filter((trainer) => trainer.id)
+            : [],
+        );
+      })
+      .catch((error) => {
+        console.error(error);
+        if (isMounted) setTrainers([]);
+      });
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   const filteredMembers = members.filter((m) => {
@@ -134,9 +204,11 @@ export const Payments: React.FC = () => {
       setPaymentAction("new");
     }
     setSelectedPackageId("");
+    setSelectedTrainerId("");
   };
 
   const selectedPackage = packages.find((p) => p.id === selectedPackageId);
+  const requiresTrainer = selectedPackage?.type === "pt";
   const hasActivePackage =
     selectedMember?.currentPackage &&
     selectedMember.membershipStatus === "active";
@@ -147,6 +219,7 @@ export const Payments: React.FC = () => {
     setSelectedMember(null);
     setPaymentAction("new");
     setSelectedPackageId("");
+    setSelectedTrainerId("");
     setPaymentMethod("cash");
     setNote("");
     setShowMemberDropdown(false);
@@ -163,6 +236,10 @@ export const Payments: React.FC = () => {
       return;
     }
     const pkg = packages.find((p) => p.id === selectedPackageId)!;
+    if (pkg.type === "pt" && !selectedTrainerId) {
+      showToast("Vui long chon PT cho goi PT!", "error");
+      return;
+    }
 
     const newPayment: Payment = {
       id: `pay-${Date.now()}`,
@@ -179,7 +256,7 @@ export const Payments: React.FC = () => {
     };
 
     try {
-      await addPayment(newPayment);
+      await addPayment(newPayment, pkg.type === "pt" ? selectedTrainerId : undefined);
     resetModal();
     showToast(
       `Thanh toán thành công! Gói "${getPackageDisplayName(pkg)}" đã được kích hoạt cho ${selectedMember.name}.`,
@@ -609,7 +686,10 @@ export const Payments: React.FC = () => {
                       ).map((pkg) => (
                         <div
                           key={pkg.id}
-                          onClick={() => setSelectedPackageId(pkg.id)}
+                          onClick={() => {
+                            setSelectedPackageId(pkg.id);
+                            if (pkg.type !== "pt") setSelectedTrainerId("");
+                          }}
                           className={`border-2 rounded-xl p-4 cursor-pointer transition-all ${selectedPackageId === pkg.id ? "border-blue-500 bg-blue-50" : "border-gray-200 hover:border-gray-300"}`}
                         >
                           <div className="flex items-center justify-between">
@@ -650,6 +730,32 @@ export const Payments: React.FC = () => {
                         )}
                     </div>
                   )}
+                </div>
+              )}
+
+              {selectedMember && selectedPackageId && requiresTrainer && (
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">
+                    Chọn PT phụ trách <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    value={selectedTrainerId}
+                    onChange={(e) => setSelectedTrainerId(e.target.value)}
+                    className={inputCls}
+                    required
+                  >
+                    <option value="">Chọn PT cho hội viên</option>
+                    {trainers.map((trainer) => (
+                      <option key={trainer.id} value={trainer.id}>
+                        {trainer.name}
+                        {trainer.email ? ` - ${trainer.email}` : ""}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Gói PT yêu cầu chọn đúng 1 PT. PT này sẽ được lưu vào gói tập
+                    của hội viên.
+                  </p>
                 </div>
               )}
 
@@ -740,7 +846,11 @@ export const Payments: React.FC = () => {
               <div className="flex gap-3 pt-2">
                 <button
                   type="submit"
-                  disabled={!selectedMember || !selectedPackageId}
+                  disabled={
+                    !selectedMember ||
+                    !selectedPackageId ||
+                    (requiresTrainer && !selectedTrainerId)
+                  }
                   className="flex-1 bg-blue-600 text-white py-2.5 rounded-lg hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors font-medium text-sm"
                 >
                   Xác nhận & Kích hoạt gói

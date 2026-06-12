@@ -15,7 +15,7 @@ interface GymDataContextType {
   addMember: (member: Member) => Promise<Member>;
   updateMember: (id: string, updates: Partial<Member>) => Promise<Member>;
   deleteMember: (id: string) => Promise<void>;
-  addPayment: (payment: Payment) => Promise<Payment>;
+  addPayment: (payment: Payment, trainerId?: string) => Promise<Payment>;
   confirmPayment: (paymentId: string) => Promise<void>;
   cancelPayment: (paymentId: string) => Promise<void>;
 }
@@ -51,11 +51,32 @@ type ApiUser = {
 type ApiMemberPackage = {
   id?: number | string;
   memberId?: number | string;
+  member_id?: number | string;
   packageId?: number | string;
+  package_id?: number | string;
   package?: ApiGymPackage;
   currentPackage?: ApiGymPackage | null;
+  packageTypeSnapshot?: string;
+  package_type_snapshot?: string;
+  packageNameSnapshot?: string;
+  package_name_snapshot?: string;
+  packagePriceSnapshot?: number | string;
+  package_price_snapshot?: number | string;
+  packageDurationDaysSnapshot?: number | string;
+  package_duration_days_snapshot?: number | string;
+  packageDescriptionSnapshot?: string;
+  package_description_snapshot?: string;
+  packageBenefitsSnapshot?: string;
+  package_benefits_snapshot?: string;
+  trainerId?: number | string;
+  trainer_id?: number | string;
+  trainerName?: string;
+  trainer_name?: string;
+  trainer?: ApiUser;
   startDate?: string;
+  start_date?: string;
   endDate?: string;
+  end_date?: string;
   status?: string;
 };
 
@@ -159,26 +180,31 @@ const normalizePackageType = (type?: string): MembershipPackage["type"] => {
     : "monthly";
 };
 
-const mapApiPackage = (apiPackage: ApiGymPackage): MembershipPackage => ({
-  id: String(apiPackage.id),
-  name: getPackageDisplayName({
-    name: apiPackage.name,
-    duration: Number(apiPackage.duration ?? apiPackage.durationDays ?? 0),
-    type: apiPackage.type,
-  }),
-  description: apiPackage.description ?? "",
-  duration: Number(apiPackage.duration ?? apiPackage.durationDays ?? 0),
-  price: Number(apiPackage.price ?? 0),
-  type: normalizePackageType(apiPackage.type),
-  features: Array.isArray(apiPackage.features)
-    ? apiPackage.features
-    : parseBenefits(apiPackage.benefits),
-  isActive: apiPackage.isActive ?? apiPackage.status !== "inactive",
-  createdAt:
-    typeof apiPackage.createdAt === "string"
-      ? apiPackage.createdAt.slice(0, 10)
-      : new Date().toISOString().slice(0, 10),
-});
+const mapApiPackage = (apiPackage: ApiGymPackage): MembershipPackage => {
+  const duration = Number(apiPackage.duration ?? apiPackage.durationDays ?? 0);
+  const displaySource = {
+    name: apiPackage.name ?? "",
+    duration,
+    ...(apiPackage.type !== undefined ? { type: apiPackage.type } : {}),
+  };
+
+  return {
+    id: String(apiPackage.id),
+    name: getPackageDisplayName(displaySource),
+    description: apiPackage.description ?? "",
+    duration,
+    price: Number(apiPackage.price ?? 0),
+    type: normalizePackageType(apiPackage.type),
+    features: Array.isArray(apiPackage.features)
+      ? apiPackage.features
+      : parseBenefits(apiPackage.benefits),
+    isActive: apiPackage.isActive ?? apiPackage.status !== "inactive",
+    createdAt:
+      typeof apiPackage.createdAt === "string"
+        ? apiPackage.createdAt.slice(0, 10)
+        : new Date().toISOString().slice(0, 10),
+  };
+};
 
 const normalizeGender = (gender?: string): Member["gender"] => {
   if (gender === "male" || gender === "female" || gender === "other") {
@@ -214,37 +240,200 @@ const getCurrentMemberPackage = (
 ) => {
   const today = new Date().toISOString().slice(0, 10);
   const packagesForMember = memberPackages
-    .filter((memberPackage) => String(memberPackage.memberId ?? "") === memberId)
-    .sort((a, b) => String(b.endDate ?? "").localeCompare(String(a.endDate ?? "")));
+    .filter(
+      (memberPackage) =>
+        String(memberPackage.memberId ?? memberPackage.member_id ?? "") === memberId,
+    )
+    .sort((a, b) =>
+      String(b.endDate ?? b.end_date ?? "").localeCompare(
+        String(a.endDate ?? a.end_date ?? ""),
+      ),
+    );
 
   return (
     packagesForMember.find(
       (memberPackage) =>
         memberPackage.status === "active" &&
-        (!memberPackage.endDate || String(memberPackage.endDate).slice(0, 10) >= today),
+        (!(memberPackage.endDate ?? memberPackage.end_date) ||
+          String(memberPackage.endDate ?? memberPackage.end_date).slice(0, 10) >=
+            today),
     ) ?? packagesForMember[0]
   );
+};
+
+const isActiveMemberPackage = (memberPackage: ApiMemberPackage) => {
+  const endDate = memberPackage.endDate ?? memberPackage.end_date;
+
+  return (
+    memberPackage.status === "active" &&
+    (!endDate || String(endDate).slice(0, 10) >= new Date().toISOString().slice(0, 10))
+  );
+};
+
+const isPtMemberPackage = (memberPackage: ApiMemberPackage) => {
+  const packageType =
+    memberPackage.packageTypeSnapshot ??
+    memberPackage.package_type_snapshot ??
+    memberPackage.package?.type ??
+    memberPackage.currentPackage?.type;
+
+  return packageType === "pt";
+};
+
+const getActivePtMemberPackage = (memberPackages: ApiMemberPackage[]) =>
+  memberPackages
+    .filter(
+      (memberPackage) =>
+        isActiveMemberPackage(memberPackage) && isPtMemberPackage(memberPackage),
+    )
+    .sort((a, b) =>
+      String(b.endDate ?? b.end_date ?? "").localeCompare(
+        String(a.endDate ?? a.end_date ?? ""),
+      ),
+    )[0];
+
+const normalizeMemberPackage = (
+  memberPackage: ApiMemberPackage,
+  fallbackMemberId?: string,
+): ApiMemberPackage => {
+  const normalized: ApiMemberPackage = { ...memberPackage };
+  const memberId =
+    memberPackage.memberId ?? memberPackage.member_id ?? fallbackMemberId;
+  const packageId = memberPackage.packageId ?? memberPackage.package_id;
+  const startDate = memberPackage.startDate ?? memberPackage.start_date;
+  const endDate = memberPackage.endDate ?? memberPackage.end_date;
+  const trainerId =
+    memberPackage.trainerId ?? memberPackage.trainer_id ?? memberPackage.trainer?.id;
+  const trainerName =
+    memberPackage.trainerName ??
+    memberPackage.trainer_name ??
+    memberPackage.trainer?.fullName ??
+    memberPackage.trainer?.full_name ??
+    memberPackage.trainer?.name;
+
+  if (memberId !== undefined) normalized.memberId = memberId;
+  if (packageId !== undefined) normalized.packageId = packageId;
+  if (startDate !== undefined) normalized.startDate = startDate;
+  if (endDate !== undefined) normalized.endDate = endDate;
+  if (trainerId !== undefined) normalized.trainerId = trainerId;
+  if (trainerName !== undefined) normalized.trainerName = trainerName;
+
+  return normalized;
+};
+
+const hasMemberPackagePackageInfo = (memberPackage: ApiMemberPackage) =>
+  Boolean(
+    memberPackage.package ??
+      memberPackage.currentPackage ??
+      memberPackage.packageNameSnapshot ??
+      memberPackage.package_name_snapshot,
+  );
+
+const mergeMemberPackages = (
+  embeddedMemberPackages: ApiMemberPackage[],
+  globalMemberPackages: ApiMemberPackage[],
+) => {
+  const byId = new Map<string, ApiMemberPackage>();
+
+  [...embeddedMemberPackages, ...globalMemberPackages].forEach((memberPackage) => {
+    const key = String(memberPackage.id ?? `${memberPackage.memberId ?? ""}-${memberPackage.packageId ?? ""}-${memberPackage.endDate ?? ""}`);
+    const existing = byId.get(key);
+
+    if (!existing || (!hasMemberPackagePackageInfo(existing) && hasMemberPackagePackageInfo(memberPackage))) {
+      byId.set(key, memberPackage);
+    }
+  });
+
+  return Array.from(byId.values());
+};
+
+const getSnapshotPackage = (
+  memberPackage: ApiMemberPackage,
+): ApiGymPackage | undefined => {
+  const name =
+    memberPackage.packageNameSnapshot ?? memberPackage.package_name_snapshot;
+  const packageId = memberPackage.packageId ?? memberPackage.package_id;
+
+  if (!name && packageId === undefined) {
+    return undefined;
+  }
+
+  const snapshotPackage: ApiGymPackage = {
+    id: packageId ?? "",
+    name: name ?? "",
+  };
+  const type =
+    memberPackage.packageTypeSnapshot ?? memberPackage.package_type_snapshot;
+  const price =
+    memberPackage.packagePriceSnapshot ?? memberPackage.package_price_snapshot;
+  const durationDays =
+    memberPackage.packageDurationDaysSnapshot ??
+    memberPackage.package_duration_days_snapshot;
+  const description =
+    memberPackage.packageDescriptionSnapshot ??
+    memberPackage.package_description_snapshot;
+  const benefits =
+    memberPackage.packageBenefitsSnapshot ?? memberPackage.package_benefits_snapshot;
+
+  if (type !== undefined) snapshotPackage.type = type;
+  if (price !== undefined) snapshotPackage.price = price;
+  if (durationDays !== undefined) snapshotPackage.durationDays = durationDays;
+  if (description !== undefined) snapshotPackage.description = description;
+  if (benefits !== undefined) snapshotPackage.benefits = benefits;
+
+  return snapshotPackage;
+};
+
+const resolveMemberPackagePackage = (
+  memberPackage: ApiMemberPackage | undefined,
+  packages: ApiGymPackage[],
+) => {
+  if (!memberPackage) {
+    return undefined;
+  }
+
+  if (memberPackage.package) {
+    return memberPackage.package;
+  }
+
+  if (memberPackage.currentPackage) {
+    return memberPackage.currentPackage;
+  }
+
+  const snapshotPackage = getSnapshotPackage(memberPackage);
+  if (snapshotPackage?.name) {
+    return snapshotPackage;
+  }
+
+  const packageId = String(
+    memberPackage.packageId ?? memberPackage.package_id ?? "",
+  );
+
+  return packages.find((gymPackage) => String(gymPackage.id) === packageId);
 };
 
 const mapApiMember = (
   apiMember: ApiMember,
   memberPackages: ApiMemberPackage[] = [],
+  packages: ApiGymPackage[] = [],
 ): Member => {
   const id = String(apiMember.id ?? "");
-  const ownMemberPackages = (apiMember.memberPackages ?? memberPackages).map(
-    (memberPackage) => ({
-      ...memberPackage,
-      memberId: memberPackage.memberId ?? id,
-    }),
+  const globalMemberPackages = memberPackages
+    .map((memberPackage) => normalizeMemberPackage(memberPackage))
+    .filter((memberPackage) => String(memberPackage.memberId ?? "") === id);
+  const embeddedMemberPackages = (apiMember.memberPackages ?? []).map(
+    (memberPackage) => normalizeMemberPackage(memberPackage, id),
+  );
+  const ownMemberPackages = mergeMemberPackages(
+    embeddedMemberPackages,
+    globalMemberPackages,
   );
   const currentMemberPackage = getCurrentMemberPackage(id, ownMemberPackages);
-  const currentPackage = currentMemberPackage?.package
-    ? mapApiPackage(currentMemberPackage.package)
-    : currentMemberPackage?.currentPackage
-      ? mapApiPackage(currentMemberPackage.currentPackage)
-      : undefined;
+  const activePtMemberPackage = getActivePtMemberPackage(ownMemberPackages);
+  const apiPackage = resolveMemberPackagePackage(currentMemberPackage, packages);
+  const currentPackage = apiPackage ? mapApiPackage(apiPackage) : undefined;
 
-  return {
+  const mappedMember: Member = {
     id,
     userId: String(apiMember.userId ?? apiMember.user_id ?? apiMember.user?.id ?? ""),
     name:
@@ -262,22 +451,38 @@ const mapApiMember = (
     address: apiMember.address ?? "",
     membershipStatus: currentPackage
       ? normalizeMemberStatus(
-          apiMember.membershipStatus ??
+          currentMemberPackage?.status ??
+            apiMember.membershipStatus ??
             apiMember.membership_status ??
-            apiMember.status ??
-            currentMemberPackage?.status,
+            apiMember.status,
         )
       : "expired",
     joinDate: toDateString(apiMember.joinDate ?? apiMember.join_date),
-    currentPackage,
-    packageExpiry: toDateString(currentMemberPackage?.endDate),
-    avatar:
-      apiMember.avatar ??
-      apiMember.avatarUrl ??
-      apiMember.avatar_url ??
-      apiMember.user?.avatar ??
-      apiMember.user?.avatarUrl,
+    packageExpiry: toDateString(
+      currentMemberPackage?.endDate ?? currentMemberPackage?.end_date,
+    ),
   };
+  const avatar =
+    apiMember.avatar ??
+    apiMember.avatarUrl ??
+    apiMember.avatar_url ??
+    apiMember.user?.avatar ??
+    apiMember.user?.avatarUrl;
+
+  if (currentPackage !== undefined) mappedMember.currentPackage = currentPackage;
+  if (activePtMemberPackage !== undefined) {
+    mappedMember.hasActivePtPackage = true;
+  }
+  const trainerSource = activePtMemberPackage ?? currentMemberPackage;
+  if (trainerSource?.trainerId !== undefined) {
+    mappedMember.trainerId = String(trainerSource.trainerId);
+  }
+  if (trainerSource?.trainerName !== undefined) {
+    mappedMember.trainerName = trainerSource.trainerName;
+  }
+  if (avatar !== undefined) mappedMember.avatar = avatar;
+
+  return mappedMember;
 };
 
 const mapApiPayment = (apiPayment: ApiPayment): Payment => {
@@ -290,7 +495,7 @@ const mapApiPayment = (apiPayment: ApiPayment): Payment => {
     apiPayment.packageName ??
     (apiPackage ? getPackageDisplayName(mapApiPackage(apiPackage)) : "");
 
-  return {
+  const mappedPayment: Payment = {
     id: String(apiPayment.id ?? ""),
     memberId: String(apiPayment.memberId ?? apiPayment.member_id ?? member?.id ?? ""),
     memberName:
@@ -309,9 +514,16 @@ const mapApiPayment = (apiPayment: ApiPayment): Payment => {
     paymentDate: toDateString(
       apiPayment.paymentDate ?? apiPayment.paidAt ?? apiPayment.paid_at,
     ),
-    processedBy: apiPayment.processedBy,
-    notes: apiPayment.notes,
   };
+
+  if (apiPayment.processedBy !== undefined) {
+    mappedPayment.processedBy = apiPayment.processedBy;
+  }
+  if (apiPayment.notes !== undefined) {
+    mappedPayment.notes = apiPayment.notes;
+  }
+
+  return mappedPayment;
 };
 
 const toApiPackagePayload = (membershipPackage: MembershipPackage) => ({
@@ -392,8 +604,9 @@ export const GymDataProvider: React.FC<{ children: React.ReactNode }> = ({
 
       if (!isMounted) return;
 
+      let apiPackages: ApiGymPackage[] = [];
       try {
-        const apiPackages =
+        apiPackages =
           packagesResult.status === "fulfilled"
             ? assertArrayResponse<ApiGymPackage>(
                 packagesResult.value,
@@ -425,7 +638,11 @@ export const GymDataProvider: React.FC<{ children: React.ReactNode }> = ({
           membersResult.status === "fulfilled"
             ? assertArrayResponse<ApiMember>(membersResult.value, "/members")
             : [];
-        setMembers(apiMembers.map((member) => mapApiMember(member, apiMemberPackages)));
+        setMembers(
+          apiMembers.map((member) =>
+            mapApiMember(member, apiMemberPackages, apiPackages),
+          ),
+        );
       } catch (error) {
         console.error(error);
         setMembers([]);
@@ -563,7 +780,7 @@ export const GymDataProvider: React.FC<{ children: React.ReactNode }> = ({
   };
 
   // When a new payment is added with status=completed, immediately update member
-  const addPaymentAndActivate = async (payment: Payment) => {
+  const addPaymentAndActivate = async (payment: Payment, trainerId?: string) => {
     const pkg = packages.find((p) => p.id === payment.packageId);
     if (!pkg) {
       throw new Error("Không tìm thấy gói tập");
@@ -578,6 +795,7 @@ export const GymDataProvider: React.FC<{ children: React.ReactNode }> = ({
       body: JSON.stringify({
         memberId: Number(payment.memberId),
         packageId: Number(payment.packageId),
+        trainerId: trainerId ? Number(trainerId) : undefined,
         startDate: startDate.toISOString().slice(0, 10),
         endDate: endDate.toISOString().slice(0, 10),
         status: "active",
@@ -606,6 +824,13 @@ export const GymDataProvider: React.FC<{ children: React.ReactNode }> = ({
                 toDateString(savedMemberPackage.endDate) ||
                 endDate.toISOString().slice(0, 10),
               membershipStatus: "active",
+              ...(savedMemberPackage.trainerId !== undefined
+                ? { trainerId: String(savedMemberPackage.trainerId) }
+                : {}),
+              ...(savedMemberPackage.trainerName !== undefined
+                ? { trainerName: savedMemberPackage.trainerName }
+                : {}),
+              ...(pkg.type === "pt" ? { hasActivePtPackage: true } : {}),
             }
           : m,
       ),

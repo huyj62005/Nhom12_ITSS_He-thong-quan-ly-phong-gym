@@ -4,7 +4,6 @@ import {
     Column,
     ManyToOne,
     JoinColumn,
-    CreateDateColumn,
 } from 'typeorm';
 import { TrainingSchedule } from '../../training-schedules/entities/training-schedule.entity';
 import { Member } from '../../members/entities/member.entity';
@@ -52,13 +51,24 @@ export class TrainingProgress {
     })
     bodyFatPercent?: number;
 
+    @Column({
+        name: 'muscle_mass',
+        type: 'decimal',
+        precision: 5,
+        scale: 2,
+        nullable: true,
+    })
+    muscleMass?: number;
+
     @Column('text', {
         nullable: true,
     })
     evaluation?: string;
 
-    @CreateDateColumn({
+    @Column({
         name: 'recorded_at',
+        type: 'timestamp',
+        default: () => 'CURRENT_TIMESTAMP',
     })
     recordedAt?: Date;
 }

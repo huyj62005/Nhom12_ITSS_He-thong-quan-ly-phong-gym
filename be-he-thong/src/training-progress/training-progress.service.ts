@@ -9,6 +9,8 @@ import { TrainingSchedule } from '../training-schedules/entities/training-schedu
 
 type ProgressPayload = Partial<CreateTrainingProgressDto> & {
   muscleMass?: number;
+  date?: string;
+  recordedAt?: string;
 };
 
 @Injectable()
@@ -30,8 +32,10 @@ export class TrainingProgressService {
         ? await this.findScheduleOrFail(payload.trainingScheduleId)
         : undefined,
       goal: payload.goal,
+      recordedAt: this.toProgressDate(payload.recordedAt ?? payload.date),
       bodyWeight: payload.bodyWeight,
       bodyFatPercent: payload.bodyFatPercent,
+      muscleMass: payload.muscleMass,
       evaluation: payload.evaluation,
     });
 
@@ -71,10 +75,16 @@ export class TrainingProgressService {
         : undefined;
     }
     if (payload.goal !== undefined) progress.goal = payload.goal;
+    if (payload.recordedAt !== undefined || payload.date !== undefined) {
+      progress.recordedAt = this.toProgressDate(
+        payload.recordedAt ?? payload.date,
+      );
+    }
     if (payload.bodyWeight !== undefined) progress.bodyWeight = payload.bodyWeight;
     if (payload.bodyFatPercent !== undefined) {
       progress.bodyFatPercent = payload.bodyFatPercent;
     }
+    if (payload.muscleMass !== undefined) progress.muscleMass = payload.muscleMass;
     if (payload.evaluation !== undefined) progress.evaluation = payload.evaluation;
 
     return this.toProgressResponse(await this.progressRepository.save(progress));
@@ -154,6 +164,19 @@ export class TrainingProgressService {
     return typeof date === 'string' ? date : date.toISOString();
   }
 
+  private toProgressDate(value?: string) {
+    if (!value) {
+      return new Date();
+    }
+
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+      throw new BadRequestException('Recorded date is invalid');
+    }
+
+    return date;
+  }
+
   private toProgressResponse(progress: TrainingProgress) {
     return {
       id: progress.id,
@@ -167,7 +190,7 @@ export class TrainingProgressService {
       bodyWeight: Number(progress.bodyWeight ?? 0),
       bodyFat: Number(progress.bodyFatPercent ?? 0),
       bodyFatPercent: Number(progress.bodyFatPercent ?? 0),
-      muscleMass: 0,
+      muscleMass: Number(progress.muscleMass ?? 0),
       notes: progress.evaluation ?? progress.goal ?? '',
       evaluation: progress.evaluation ?? '',
       exercises: [],

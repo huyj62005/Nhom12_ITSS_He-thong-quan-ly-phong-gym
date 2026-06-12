@@ -1,6 +1,7 @@
 import React from "react";
 import { Link, useLocation } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
+import { useGymData } from "../contexts/GymDataContext";
 import {
   LayoutDashboard,
   Users,
@@ -93,10 +94,28 @@ const navItems: NavItem[] = [
 export const Sidebar: React.FC = () => {
   const location = useLocation();
   const { user } = useAuth();
-
-  const filteredNavItems = navItems.filter((item) =>
-    item.roles.includes(user?.role || ""),
+  const { members } = useGymData();
+  const currentMember = members.find(
+    (member) =>
+      member.userId === user?.id ||
+      member.email === user?.email ||
+      member.name === user?.name,
   );
+  const memberHasActivePtPackage =
+    currentMember?.hasActivePtPackage === true &&
+    Boolean(currentMember.trainerId);
+
+  const filteredNavItems = navItems.filter((item) => {
+    if (!item.roles.includes(user?.role || "")) {
+      return false;
+    }
+
+    if (user?.role === "member" && item.path === "/progress") {
+      return Boolean(memberHasActivePtPackage);
+    }
+
+    return true;
+  });
 
   return (
     <div className="w-64 bg-white border-r border-gray-200 h-screen fixed left-0 top-0 overflow-y-auto">

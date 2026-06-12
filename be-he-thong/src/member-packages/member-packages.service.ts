@@ -54,7 +54,9 @@ export class MemberPackagesService {
     const savedMemberPackage =
       await this.memberPackagesRepository.save(memberPackage);
 
-    return this.toMemberPackageResponse(savedMemberPackage);
+    return this.toMemberPackageResponse(
+      await this.findMemberPackageOrFail(savedMemberPackage.id),
+    );
   }
 
   async findAll() {
@@ -138,7 +140,9 @@ export class MemberPackagesService {
     const savedMemberPackage =
       await this.memberPackagesRepository.save(memberPackage);
 
-    return this.toMemberPackageResponse(savedMemberPackage);
+    return this.toMemberPackageResponse(
+      await this.findMemberPackageOrFail(savedMemberPackage.id),
+    );
   }
 
   async remove(id: number) {
@@ -362,7 +366,10 @@ export class MemberPackagesService {
       id: memberPackage.id,
       memberId: memberPackage.member?.id,
       trainerId: memberPackage.trainer?.id,
+      trainerName: memberPackage.trainer?.fullName,
       packageId: memberPackage.package?.id,
+      packageTypeSnapshot:
+        memberPackage.packageTypeSnapshot ?? memberPackage.package?.type,
       package: snapshotPackage,
       currentPackage,
       startDate: this.toDateString(memberPackage.startDate),
