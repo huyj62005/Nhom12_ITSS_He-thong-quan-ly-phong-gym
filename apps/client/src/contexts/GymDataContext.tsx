@@ -1,12 +1,15 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { Member, Payment, MembershipPackage } from "../types";
 import { getPackageDisplayName } from "../utils/packageNames";
+import { isMemberPackageStillValid } from "../utils/membership";
 
 interface GymDataContextType {
   members: Member[];
   payments: Payment[];
   packages: MembershipPackage[];
-  addPackage: (membershipPackage: MembershipPackage) => Promise<MembershipPackage>;
+  addPackage: (
+    membershipPackage: MembershipPackage,
+  ) => Promise<MembershipPackage>;
   updatePackage: (
     id: string,
     membershipPackage: MembershipPackage,
@@ -139,7 +142,9 @@ const parseBenefits = (benefits?: string) => {
   try {
     const parsed = JSON.parse(benefits);
     return Array.isArray(parsed)
-      ? parsed.filter((feature): feature is string => typeof feature === "string")
+      ? parsed.filter(
+          (feature): feature is string => typeof feature === "string",
+        )
       : [];
   } catch {
     return benefits
@@ -182,15 +187,16 @@ const normalizePackageType = (type?: string): MembershipPackage["type"] => {
 
 const mapApiPackage = (apiPackage: ApiGymPackage): MembershipPackage => {
   const duration = Number(apiPackage.duration ?? apiPackage.durationDays ?? 0);
-  const displaySource = {
-    name: apiPackage.name ?? "",
-    duration,
-    ...(apiPackage.type !== undefined ? { type: apiPackage.type } : {}),
-  };
+  const packageName =
+    apiPackage.name?.trim() ||
+    getPackageDisplayName({
+      duration,
+      ...(apiPackage.type !== undefined ? { type: apiPackage.type } : {}),
+    });
 
   return {
     id: String(apiPackage.id),
-    name: getPackageDisplayName(displaySource),
+    name: packageName,
     description: apiPackage.description ?? "",
     duration,
     price: Number(apiPackage.price ?? 0),
@@ -207,8 +213,22 @@ const mapApiPackage = (apiPackage: ApiGymPackage): MembershipPackage => {
 };
 
 const normalizeGender = (gender?: string): Member["gender"] => {
-  if (gender === "male" || gender === "female" || gender === "other") {
-    return gender;
+  const normalizedGender = gender?.trim().toLowerCase();
+
+  if (normalizedGender === "male" || normalizedGender === "nam") {
+    return "male";
+  }
+
+  if (
+    normalizedGender === "female" ||
+    normalizedGender === "nữ" ||
+    normalizedGender === "nu"
+  ) {
+    return "female";
+  }
+
+  if (normalizedGender === "other" || normalizedGender === "khác") {
+    return "other";
   }
 
   return "other";
@@ -242,7 +262,8 @@ const getCurrentMemberPackage = (
   const packagesForMember = memberPackages
     .filter(
       (memberPackage) =>
-        String(memberPackage.memberId ?? memberPackage.member_id ?? "") === memberId,
+        String(memberPackage.memberId ?? memberPackage.member_id ?? "") ===
+        memberId,
     )
     .sort((a, b) =>
       String(b.endDate ?? b.end_date ?? "").localeCompare(
@@ -255,9 +276,16 @@ const getCurrentMemberPackage = (
       (memberPackage) =>
         memberPackage.status === "active" &&
         (!(memberPackage.endDate ?? memberPackage.end_date) ||
-          String(memberPackage.endDate ?? memberPackage.end_date).slice(0, 10) >=
-            today),
-    ) ?? packagesForMember[0]
+          String(memberPackage.endDate ?? memberPackage.end_date).slice(
+            0,
+            10,
+          ) >= today),
+    ) ??
+    packagesForMember.find(
+      (memberPackage) =>
+        memberPackage.status !== "pending" &&
+        memberPackage.status !== "cancelled",
+    )
   );
 };
 
@@ -266,7 +294,8 @@ const isActiveMemberPackage = (memberPackage: ApiMemberPackage) => {
 
   return (
     memberPackage.status === "active" &&
-    (!endDate || String(endDate).slice(0, 10) >= new Date().toISOString().slice(0, 10))
+    (!endDate ||
+      String(endDate).slice(0, 10) >= new Date().toISOString().slice(0, 10))
   );
 };
 
@@ -284,7 +313,8 @@ const getActivePtMemberPackage = (memberPackages: ApiMemberPackage[]) =>
   memberPackages
     .filter(
       (memberPackage) =>
-        isActiveMemberPackage(memberPackage) && isPtMemberPackage(memberPackage),
+        isActiveMemberPackage(memberPackage) &&
+        isPtMemberPackage(memberPackage),
     )
     .sort((a, b) =>
       String(b.endDate ?? b.end_date ?? "").localeCompare(
@@ -303,7 +333,9 @@ const normalizeMemberPackage = (
   const startDate = memberPackage.startDate ?? memberPackage.start_date;
   const endDate = memberPackage.endDate ?? memberPackage.end_date;
   const trainerId =
-    memberPackage.trainerId ?? memberPackage.trainer_id ?? memberPackage.trainer?.id;
+    memberPackage.trainerId ??
+    memberPackage.trainer_id ??
+    memberPackage.trainer?.id;
   const trainerName =
     memberPackage.trainerName ??
     memberPackage.trainer_name ??
@@ -324,9 +356,9 @@ const normalizeMemberPackage = (
 const hasMemberPackagePackageInfo = (memberPackage: ApiMemberPackage) =>
   Boolean(
     memberPackage.package ??
-      memberPackage.currentPackage ??
-      memberPackage.packageNameSnapshot ??
-      memberPackage.package_name_snapshot,
+    memberPackage.currentPackage ??
+    memberPackage.packageNameSnapshot ??
+    memberPackage.package_name_snapshot,
   );
 
 const mergeMemberPackages = (
@@ -335,14 +367,23 @@ const mergeMemberPackages = (
 ) => {
   const byId = new Map<string, ApiMemberPackage>();
 
-  [...embeddedMemberPackages, ...globalMemberPackages].forEach((memberPackage) => {
-    const key = String(memberPackage.id ?? `${memberPackage.memberId ?? ""}-${memberPackage.packageId ?? ""}-${memberPackage.endDate ?? ""}`);
-    const existing = byId.get(key);
+  [...embeddedMemberPackages, ...globalMemberPackages].forEach(
+    (memberPackage) => {
+      const key = String(
+        memberPackage.id ??
+          `${memberPackage.memberId ?? ""}-${memberPackage.packageId ?? ""}-${memberPackage.endDate ?? ""}`,
+      );
+      const existing = byId.get(key);
 
-    if (!existing || (!hasMemberPackagePackageInfo(existing) && hasMemberPackagePackageInfo(memberPackage))) {
-      byId.set(key, memberPackage);
-    }
-  });
+      if (
+        !existing ||
+        (!hasMemberPackagePackageInfo(existing) &&
+          hasMemberPackagePackageInfo(memberPackage))
+      ) {
+        byId.set(key, memberPackage);
+      }
+    },
+  );
 
   return Array.from(byId.values());
 };
@@ -373,7 +414,8 @@ const getSnapshotPackage = (
     memberPackage.packageDescriptionSnapshot ??
     memberPackage.package_description_snapshot;
   const benefits =
-    memberPackage.packageBenefitsSnapshot ?? memberPackage.package_benefits_snapshot;
+    memberPackage.packageBenefitsSnapshot ??
+    memberPackage.package_benefits_snapshot;
 
   if (type !== undefined) snapshotPackage.type = type;
   if (price !== undefined) snapshotPackage.price = price;
@@ -430,12 +472,17 @@ const mapApiMember = (
   );
   const currentMemberPackage = getCurrentMemberPackage(id, ownMemberPackages);
   const activePtMemberPackage = getActivePtMemberPackage(ownMemberPackages);
-  const apiPackage = resolveMemberPackagePackage(currentMemberPackage, packages);
+  const apiPackage = resolveMemberPackagePackage(
+    currentMemberPackage,
+    packages,
+  );
   const currentPackage = apiPackage ? mapApiPackage(apiPackage) : undefined;
 
   const mappedMember: Member = {
     id,
-    userId: String(apiMember.userId ?? apiMember.user_id ?? apiMember.user?.id ?? ""),
+    userId: String(
+      apiMember.userId ?? apiMember.user_id ?? apiMember.user?.id ?? "",
+    ),
     name:
       apiMember.fullName ??
       apiMember.full_name ??
@@ -449,14 +496,17 @@ const mapApiMember = (
     dateOfBirth: toDateString(apiMember.dateOfBirth ?? apiMember.date_of_birth),
     gender: normalizeGender(apiMember.gender),
     address: apiMember.address ?? "",
-    membershipStatus: currentPackage
-      ? normalizeMemberStatus(
-          currentMemberPackage?.status ??
-            apiMember.membershipStatus ??
-            apiMember.membership_status ??
-            apiMember.status,
-        )
-      : "expired",
+    membershipStatus:
+      currentPackage &&
+      currentMemberPackage &&
+      isActiveMemberPackage(currentMemberPackage)
+        ? normalizeMemberStatus(
+            currentMemberPackage.status ??
+              apiMember.membershipStatus ??
+              apiMember.membership_status ??
+              apiMember.status,
+          )
+        : "expired",
     joinDate: toDateString(apiMember.joinDate ?? apiMember.join_date),
     packageExpiry: toDateString(
       currentMemberPackage?.endDate ?? currentMemberPackage?.end_date,
@@ -469,7 +519,8 @@ const mapApiMember = (
     apiMember.user?.avatar ??
     apiMember.user?.avatarUrl;
 
-  if (currentPackage !== undefined) mappedMember.currentPackage = currentPackage;
+  if (currentPackage !== undefined)
+    mappedMember.currentPackage = currentPackage;
   if (activePtMemberPackage !== undefined) {
     mappedMember.hasActivePtPackage = true;
   }
@@ -493,11 +544,16 @@ const mapApiPayment = (apiPayment: ApiPayment): Payment => {
     apiPayment.packageId ?? memberPackage?.packageId ?? apiPackage?.id ?? "";
   const packageName =
     apiPayment.packageName ??
-    (apiPackage ? getPackageDisplayName(mapApiPackage(apiPackage)) : "");
+    memberPackage?.packageNameSnapshot ??
+    memberPackage?.package_name_snapshot ??
+    apiPackage?.name ??
+    "";
 
   const mappedPayment: Payment = {
     id: String(apiPayment.id ?? ""),
-    memberId: String(apiPayment.memberId ?? apiPayment.member_id ?? member?.id ?? ""),
+    memberId: String(
+      apiPayment.memberId ?? apiPayment.member_id ?? member?.id ?? "",
+    ),
     memberName:
       member?.fullName ??
       member?.full_name ??
@@ -521,6 +577,25 @@ const mapApiPayment = (apiPayment: ApiPayment): Payment => {
   }
   if (apiPayment.notes !== undefined) {
     mappedPayment.notes = apiPayment.notes;
+  }
+  const memberPackageEndDate =
+    memberPackage?.endDate ?? memberPackage?.end_date;
+  if (memberPackageEndDate !== undefined) {
+    mappedPayment.memberPackageEndDate = toDateString(memberPackageEndDate);
+  }
+  const memberPackageTrainerId =
+    memberPackage?.trainerId ?? memberPackage?.trainer_id;
+  if (memberPackageTrainerId !== undefined) {
+    mappedPayment.memberPackageTrainerId = String(memberPackageTrainerId);
+  }
+  const memberPackageTrainerName =
+    memberPackage?.trainerName ??
+    memberPackage?.trainer_name ??
+    memberPackage?.trainer?.fullName ??
+    memberPackage?.trainer?.full_name ??
+    memberPackage?.trainer?.name;
+  if (memberPackageTrainerName !== undefined) {
+    mappedPayment.memberPackageTrainerName = memberPackageTrainerName;
   }
 
   return mappedPayment;
@@ -550,6 +625,12 @@ const toApiMemberPayload = (member: Member | Partial<Member>) => ({
   memberType: "standard",
 });
 
+const toApiPaymentStatus = (status: Payment["status"]) => {
+  if (status === "completed") return "paid";
+  if (status === "failed") return "cancelled";
+  return "pending";
+};
+
 const toApiPaymentPayload = (
   payment: Payment,
   memberPackageId?: string | number,
@@ -559,7 +640,7 @@ const toApiPaymentPayload = (
     memberPackageId === undefined ? undefined : Number(memberPackageId),
   amount: payment.amount,
   method: payment.method === "transfer" ? "bank_transfer" : payment.method,
-  status: "paid",
+  status: toApiPaymentStatus(payment.status),
   notes: payment.notes,
 });
 
@@ -594,13 +675,17 @@ export const GymDataProvider: React.FC<{ children: React.ReactNode }> = ({
     let isMounted = true;
 
     const fetchData = async () => {
-      const [packagesResult, membersResult, memberPackagesResult, paymentsResult] =
-        await Promise.allSettled([
-          requestJson<unknown>("/gym-packages"),
-          requestJson<unknown>("/members"),
-          requestJson<unknown>("/member-packages"),
-          requestJson<unknown>("/payments"),
-        ]);
+      const [
+        packagesResult,
+        membersResult,
+        memberPackagesResult,
+        paymentsResult,
+      ] = await Promise.allSettled([
+        requestJson<unknown>("/gym-packages"),
+        requestJson<unknown>("/members"),
+        requestJson<unknown>("/member-packages"),
+        requestJson<unknown>("/payments"),
+      ]);
 
       if (!isMounted) return;
 
@@ -738,31 +823,43 @@ export const GymDataProvider: React.FC<{ children: React.ReactNode }> = ({
 
   // When a payment is confirmed (completed), update the member's package
   const confirmPayment = async (paymentId: string) => {
-    await requestJson<unknown>(`/payments/${paymentId}`, {
+    const apiPayment = await requestJson<unknown>(`/payments/${paymentId}`, {
       method: "PATCH",
       body: JSON.stringify({ status: "paid" }),
     });
+    const savedPayment = mapApiPayment(
+      assertObjectResponse<ApiPayment>(apiPayment, `/payments/${paymentId}`),
+    );
     setPayments((prev) =>
-      prev.map((p) => (p.id === paymentId ? { ...p, status: "completed" } : p)),
+      prev.map((p) => (p.id === paymentId ? savedPayment : p)),
     );
 
-    const payment = payments.find((p) => p.id === paymentId);
-    if (!payment) return;
+    if (savedPayment.status !== "completed") return;
 
-    const pkg = packages.find((p) => p.id === payment.packageId);
+    const pkg = packages.find((p) => p.id === savedPayment.packageId);
     if (!pkg) return;
 
     const expiryDate = new Date();
     expiryDate.setDate(expiryDate.getDate() + pkg.duration);
+    const packageExpiry =
+      savedPayment.memberPackageEndDate ||
+      expiryDate.toISOString().slice(0, 10);
 
     setMembers((prev) =>
       prev.map((m) =>
-        m.id === payment.memberId
+        m.id === savedPayment.memberId
           ? {
               ...m,
               currentPackage: pkg,
-              packageExpiry: expiryDate.toISOString().slice(0, 10),
+              packageExpiry,
               membershipStatus: "active",
+              ...(savedPayment.memberPackageTrainerId !== undefined
+                ? { trainerId: savedPayment.memberPackageTrainerId }
+                : {}),
+              ...(savedPayment.memberPackageTrainerName !== undefined
+                ? { trainerName: savedPayment.memberPackageTrainerName }
+                : {}),
+              ...(pkg.type === "pt" ? { hasActivePtPackage: true } : {}),
             }
           : m,
       ),
@@ -770,25 +867,43 @@ export const GymDataProvider: React.FC<{ children: React.ReactNode }> = ({
   };
 
   const cancelPayment = async (paymentId: string) => {
-    await requestJson<unknown>(`/payments/${paymentId}`, {
+    const apiPayment = await requestJson<unknown>(`/payments/${paymentId}`, {
       method: "PATCH",
       body: JSON.stringify({ status: "cancelled" }),
     });
+    const savedPayment = mapApiPayment(
+      assertObjectResponse<ApiPayment>(apiPayment, `/payments/${paymentId}`),
+    );
     setPayments((prev) =>
-      prev.map((p) => (p.id === paymentId ? { ...p, status: "failed" } : p)),
+      prev.map((p) => (p.id === paymentId ? savedPayment : p)),
     );
   };
 
-  // When a new payment is added with status=completed, immediately update member
-  const addPaymentAndActivate = async (payment: Payment, trainerId?: string) => {
+  // Completed payments activate immediately; pending payments wait for approval.
+  const addPaymentAndActivate = async (
+    payment: Payment,
+    trainerId?: string,
+  ) => {
     const pkg = packages.find((p) => p.id === payment.packageId);
     if (!pkg) {
       throw new Error("Không tìm thấy gói tập");
     }
 
+    const member = members.find((m) => m.id === payment.memberId);
+    if (
+      member &&
+      isMemberPackageStillValid(member) &&
+      member.currentPackage?.id !== payment.packageId
+    ) {
+      throw new Error(
+        "Hội viên vẫn còn gói tập đang hiệu lực. Chỉ có thể đổi gói sau khi gói hiện tại hết hạn.",
+      );
+    }
+
     const startDate = new Date();
     const endDate = new Date(startDate);
     endDate.setDate(endDate.getDate() + pkg.duration);
+    const shouldActivateImmediately = payment.status === "completed";
 
     const apiMemberPackage = await requestJson<unknown>("/member-packages", {
       method: "POST",
@@ -798,7 +913,7 @@ export const GymDataProvider: React.FC<{ children: React.ReactNode }> = ({
         trainerId: trainerId ? Number(trainerId) : undefined,
         startDate: startDate.toISOString().slice(0, 10),
         endDate: endDate.toISOString().slice(0, 10),
-        status: "active",
+        status: shouldActivateImmediately ? "active" : "pending",
       }),
     });
     const savedMemberPackage = assertObjectResponse<ApiMemberPackage>(
@@ -814,27 +929,30 @@ export const GymDataProvider: React.FC<{ children: React.ReactNode }> = ({
     );
 
     setPayments((prev) => [...prev, savedPayment]);
-    setMembers((prev) =>
-      prev.map((m) =>
-        m.id === payment.memberId
-          ? {
-              ...m,
-              currentPackage: pkg,
-              packageExpiry:
-                toDateString(savedMemberPackage.endDate) ||
-                endDate.toISOString().slice(0, 10),
-              membershipStatus: "active",
-              ...(savedMemberPackage.trainerId !== undefined
-                ? { trainerId: String(savedMemberPackage.trainerId) }
-                : {}),
-              ...(savedMemberPackage.trainerName !== undefined
-                ? { trainerName: savedMemberPackage.trainerName }
-                : {}),
-              ...(pkg.type === "pt" ? { hasActivePtPackage: true } : {}),
-            }
-          : m,
-      ),
-    );
+
+    if (savedPayment.status === "completed") {
+      setMembers((prev) =>
+        prev.map((m) =>
+          m.id === payment.memberId
+            ? {
+                ...m,
+                currentPackage: pkg,
+                packageExpiry:
+                  toDateString(savedMemberPackage.endDate) ||
+                  endDate.toISOString().slice(0, 10),
+                membershipStatus: "active",
+                ...(savedMemberPackage.trainerId !== undefined
+                  ? { trainerId: String(savedMemberPackage.trainerId) }
+                  : {}),
+                ...(savedMemberPackage.trainerName !== undefined
+                  ? { trainerName: savedMemberPackage.trainerName }
+                  : {}),
+                ...(pkg.type === "pt" ? { hasActivePtPackage: true } : {}),
+              }
+            : m,
+        ),
+      );
+    }
 
     return savedPayment;
   };

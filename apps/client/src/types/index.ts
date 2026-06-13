@@ -63,6 +63,9 @@ export interface Payment {
   paymentDate: string;
   processedBy?: string;
   notes?: string;
+  memberPackageEndDate?: string;
+  memberPackageTrainerId?: string;
+  memberPackageTrainerName?: string;
 }
 
 // Trainer Types

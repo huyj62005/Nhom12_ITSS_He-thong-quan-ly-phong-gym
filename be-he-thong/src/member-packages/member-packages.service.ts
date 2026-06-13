@@ -30,6 +30,8 @@ export class MemberPackagesService {
     const gymPackage = await this.findGymPackageOrFail(
       createMemberPackageDto.packageId,
     );
+    await this.assertCanCreateMemberPackage(member, gymPackage);
+
     const trainer = createMemberPackageDto.trainerId
       ? await this.findUserOrFail(createMemberPackageDto.trainerId)
       : undefined;
@@ -230,6 +232,38 @@ export class MemberPackagesService {
     }
 
     return user;
+  }
+
+  private async assertCanCreateMemberPackage(
+    member: Member,
+    gymPackage: GymPackage,
+  ) {
+    const activeMemberPackages = await this.memberPackagesRepository.find({
+      where: {
+        member: {
+          id: member.id,
+        },
+        status: 'active',
+      },
+      relations: {
+        package: true,
+      },
+      order: {
+        endDate: 'DESC',
+      },
+    });
+
+    const activeDifferentPackage = activeMemberPackages.find(
+      (memberPackage) =>
+        !this.isExpired(memberPackage.endDate) &&
+        memberPackage.package?.id !== gymPackage.id,
+    );
+
+    if (activeDifferentPackage) {
+      throw new BadRequestException(
+        'Hội viên vẫn còn gói tập đang hiệu lực. Chỉ có thể đổi gói sau khi gói hiện tại hết hạn.',
+      );
+    }
   }
 
   private createPackageSnapshot(gymPackage: GymPackage) {

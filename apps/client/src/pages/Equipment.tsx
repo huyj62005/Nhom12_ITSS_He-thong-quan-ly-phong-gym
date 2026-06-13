@@ -85,28 +85,60 @@ export const EquipmentPage: React.FC = () => {
       : "available";
   };
 
-  const mapApiEquipment = (item: ApiEquipment): Equipment => ({
-    id: String(item.id),
-    name: item.name ?? "",
-    category: item.category ?? "",
-    status: normalizeStatus(item.status),
-    purchaseDate: item.purchaseDate ?? "",
-    lastMaintenance: item.lastMaintenance ?? item.lastMaintenanceDate,
-    nextMaintenance: item.nextMaintenance ?? item.nextMaintenanceDate,
-    cost: Number(item.cost ?? item.purchasePrice ?? 0),
-    needsMaintenanceSoon: item.needsMaintenanceSoon,
-    maintenanceState: item.maintenanceState,
-  });
+  const mapApiEquipment = (item: ApiEquipment): Equipment => {
+    const mappedEquipment: Equipment = {
+      id: String(item.id),
+      name: item.name ?? "",
+      category: item.category ?? "",
+      status: normalizeStatus(item.status),
+      purchaseDate: item.purchaseDate ?? "",
+      cost: Number(item.cost ?? item.purchasePrice ?? 0),
+    };
+    const lastMaintenance = item.lastMaintenance ?? item.lastMaintenanceDate;
+    const nextMaintenance = item.nextMaintenance ?? item.nextMaintenanceDate;
 
-  const toApiEquipmentPayload = (item: Equipment) => ({
-    name: item.name,
-    category: item.category,
-    purchaseDate: item.purchaseDate,
-    lastMaintenance: item.lastMaintenance,
-    nextMaintenance: item.nextMaintenance,
-    purchasePrice: item.cost,
-    status: item.status,
-  });
+    if (lastMaintenance !== undefined) {
+      mappedEquipment.lastMaintenance = lastMaintenance;
+    }
+    if (nextMaintenance !== undefined) {
+      mappedEquipment.nextMaintenance = nextMaintenance;
+    }
+    if (item.needsMaintenanceSoon !== undefined) {
+      mappedEquipment.needsMaintenanceSoon = item.needsMaintenanceSoon;
+    }
+    if (item.maintenanceState !== undefined) {
+      mappedEquipment.maintenanceState = item.maintenanceState;
+    }
+
+    return mappedEquipment;
+  };
+
+  const toApiEquipmentPayload = (item: Equipment) => {
+    const payload: {
+      name: string;
+      category: string;
+      purchaseDate: string;
+      lastMaintenance?: string;
+      nextMaintenance?: string;
+      purchasePrice: number;
+      status: Equipment["status"];
+    } = {
+      name: item.name,
+      category: item.category,
+      purchaseDate: item.purchaseDate,
+      purchasePrice: item.cost,
+      status: item.status,
+    };
+
+    if (item.lastMaintenance !== undefined) {
+      payload.lastMaintenance = item.lastMaintenance;
+    }
+    if (item.nextMaintenance !== undefined) {
+      payload.nextMaintenance = item.nextMaintenance;
+    }
+
+    return payload;
+  };
 
   useEffect(() => {
     let isMounted = true;
@@ -159,7 +191,7 @@ export const EquipmentPage: React.FC = () => {
       case "available":
         return "bg-green-100 text-green-800";
       case "maintenance":
-        return "bg-red-100 text-red-800";
+        return "bg-yellow-100 text-yellow-800";
       case "broken":
         return "bg-red-100 text-red-800";
       default:
@@ -180,7 +212,7 @@ export const EquipmentPage: React.FC = () => {
       case "broken":
         return "Hỏng";
       default:
-        return status;
+        return item.status;
     }
   };
 
@@ -193,7 +225,7 @@ export const EquipmentPage: React.FC = () => {
       case "available":
         return <CheckCircle size={20} className="text-green-600" />;
       case "maintenance":
-        return <Wrench size={20} className="text-red-600" />;
+        return <Wrench size={20} className="text-yellow-600" />;
       case "broken":
         return <AlertTriangle size={20} className="text-red-600" />;
       default:
@@ -310,10 +342,10 @@ export const EquipmentPage: React.FC = () => {
   };
 
   const availableCount = equipment.filter(
-    (e) => e.status === "available",
+    (e) => e.status === "available" && !isMaintenanceDueSoon(e),
   ).length;
   const maintenanceCount = equipment.filter(
-    (e) => e.status === "maintenance",
+    (e) => e.status === "maintenance" || isMaintenanceDueSoon(e),
   ).length;
   const brokenCount = equipment.filter((e) => e.status === "broken").length;
 
@@ -346,8 +378,8 @@ export const EquipmentPage: React.FC = () => {
           </div>
           <div className="bg-white rounded-lg shadow p-6">
             <div className="flex items-center justify-between mb-2">
-              <p className="text-red-600">Đang bảo trì</p>
-              <Wrench className="text-red-600" size={24} />
+              <p className="text-yellow-600">Đang/cần bảo trì</p>
+              <Wrench className="text-yellow-600" size={24} />
             </div>
             <p className="text-3xl font-bold text-gray-900">
               {maintenanceCount}

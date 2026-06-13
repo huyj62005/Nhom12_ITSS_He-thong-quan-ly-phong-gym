@@ -137,12 +137,13 @@ export const Progress: React.FC = () => {
   const [isSavingProgress, setIsSavingProgress] = useState(false);
   const isTrainer = user?.role === "trainer";
   const isMember = user?.role === "member";
-  const currentMember = members.find(
-    (member) =>
-      member.userId === user?.id ||
-      member.email === user?.email ||
-      member.name === user?.name,
-  );
+  const currentMember = user
+    ? members.find(
+        (member) =>
+          member.userId === user.id ||
+          (!member.userId && member.email === user.email),
+      )
+    : undefined;
   const memberHasActivePtPackage =
     currentMember?.hasActivePtPackage === true &&
     Boolean(currentMember.trainerId);

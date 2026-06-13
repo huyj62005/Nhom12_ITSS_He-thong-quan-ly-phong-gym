@@ -3,6 +3,7 @@ import { DashboardLayout } from '../components/DashboardLayout';
 import { MessageSquare, Clock, CheckCircle2, AlertCircle, Plus, X } from 'lucide-react';
 import { Feedback } from '../types';
 import { useAuth } from '../contexts/AuthContext';
+import { useGymData } from '../contexts/GymDataContext';
 
 const API_BASE_URL = 'http://localhost:3000';
 
@@ -106,6 +107,7 @@ const mapApiFeedback = (feedback: ApiFeedback): Feedback => {
 
 export const FeedbackPage: React.FC = () => {
   const { user } = useAuth();
+  const { members } = useGymData();
   const [feedbacks, setFeedbacks] = useState<Feedback[]>([]);
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [showModal, setShowModal] = useState(false);
@@ -118,6 +120,13 @@ export const FeedbackPage: React.FC = () => {
     message: '',
     priority: 'medium' as 'low' | 'medium' | 'high',
   });
+  const currentMember = user
+    ? members.find(
+        (member) =>
+          member.userId === user.id ||
+          (!member.userId && member.email === user.email),
+      )
+    : undefined;
 
   useEffect(() => {
     let isMounted = true;
@@ -150,8 +159,7 @@ export const FeedbackPage: React.FC = () => {
     const matchesStatus = filterStatus === 'all' || fb.status === filterStatus;
 
     if (user?.role === 'member') {
-      // Member chỉ nhìn thấy phản hồi của chính họ (giả sử memberName khớp với user.name)
-      return matchesStatus && fb.memberName === user.name;
+      return matchesStatus && fb.memberId === currentMember?.id;
     }
 
     // Admin và Manager nhìn thấy tất cả
@@ -161,11 +169,16 @@ export const FeedbackPage: React.FC = () => {
   const handleSubmitFeedback = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    if (!currentMember) {
+      alert('Không tìm thấy hồ sơ hội viên của tài khoản hiện tại.');
+      return;
+    }
+
     try {
       const apiFeedback = await requestJson<unknown>('/feedbacks', {
         method: 'POST',
         body: JSON.stringify({
-          memberId: Number(user?.id) || 0,
+          memberId: Number(currentMember.id),
           title: newFeedback.subject,
           content: newFeedback.message,
           priority: newFeedback.priority,
@@ -300,9 +313,9 @@ export const FeedbackPage: React.FC = () => {
     }
   };
 
-  const pendingCount = feedbacks.filter((f) => f.status === 'pending').length;
-  const inProgressCount = feedbacks.filter((f) => f.status === 'in-progress').length;
-  const resolvedCount = feedbacks.filter((f) => f.status === 'resolved').length;
+  const pendingCount = filteredFeedbacks.filter((f) => f.status === 'pending').length;
+  const inProgressCount = filteredFeedbacks.filter((f) => f.status === 'in-progress').length;
+  const resolvedCount = filteredFeedbacks.filter((f) => f.status === 'resolved').length;
 
   return (
     <DashboardLayout>

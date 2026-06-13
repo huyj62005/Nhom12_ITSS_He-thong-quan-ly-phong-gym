@@ -1,17 +1,21 @@
+import { MembershipPackage } from "@/types";
+
 export type PackageDisplaySource = {
   name?: string;
   duration?: number;
   type?: string;
 };
 
-const normalizeText = (value?: string) => (value || "").toLowerCase();
-
 export const getPackageDisplayName = (pkg?: PackageDisplaySource | null) => {
   if (!pkg) return "Chưa có gói tập";
 
-  const name = normalizeText(pkg.name);
+  const name = pkg.name?.trim();
 
-  if (pkg.type === "pt" || name.includes("pt")) {
+  if (name) {
+    return name;
+  }
+
+  if (pkg.type === "pt") {
     return "Gói PT";
   }
 
@@ -21,20 +25,8 @@ export const getPackageDisplayName = (pkg?: PackageDisplaySource | null) => {
     if (pkg.duration >= 90) return "Gói 3 tháng";
   }
 
-  if (name.includes("12") || name.includes("năm") || name.includes("vip")) {
-    return "Gói 12 tháng";
-  }
-
-  if (name.includes("6")) {
-    return "Gói 6 tháng";
-  }
-
-  if (name.includes("3") || name.includes("quý") || name.includes("premium")) {
-    return "Gói 3 tháng";
-  }
-
-  return "Gói 3 tháng";
+  return "Gói tập";
 };
 
-export const isValidDisplayPackage = (pkg: PackageDisplaySource) =>
-  pkg.type === "pt" || [90, 180, 365].includes(Number(pkg.duration));
+export const isValidDisplayPackage = (pkg: MembershipPackage) =>
+  pkg.isActive && Number(pkg.duration) > 0;

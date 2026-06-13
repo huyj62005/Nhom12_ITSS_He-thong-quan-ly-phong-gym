@@ -1,4 +1,8 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { CreateMemberDto } from './dto/create-member.dto';
@@ -11,6 +15,7 @@ type MemberPayload = Partial<CreateMemberDto> & {
   name?: string;
   address?: string;
   gender?: string;
+  avatar?: string;
   avatarUrl?: string;
   status?: string;
   membershipStatus?: string;
@@ -39,8 +44,13 @@ export class MembersService {
       manager,
       fullName: payload.fullName ?? payload.name ?? user.fullName ?? '',
       phone: payload.phone ?? user.phone,
-      dateOfBirth: payload.dateOfBirth ? new Date(payload.dateOfBirth) : undefined,
+      dateOfBirth: payload.dateOfBirth
+        ? new Date(payload.dateOfBirth)
+        : undefined,
       memberType: payload.memberType ?? 'standard',
+      gender: payload.gender,
+      address: payload.address,
+      avatarUrl: payload.avatarUrl ?? payload.avatar,
       joinDate: new Date(),
       status: payload.status ?? payload.membershipStatus ?? 'expired',
     });
@@ -88,7 +98,8 @@ export class MembersService {
       member.fullName = payload.fullName ?? payload.name;
       if (member.user) member.user.fullName = member.fullName;
     }
-    if (payload.email !== undefined && member.user) member.user.email = payload.email;
+    if (payload.email !== undefined && member.user)
+      member.user.email = payload.email;
     if (payload.phone !== undefined) {
       member.phone = payload.phone;
       if (member.user) member.user.phone = payload.phone;
@@ -98,8 +109,17 @@ export class MembersService {
         ? new Date(payload.dateOfBirth)
         : undefined;
     }
-    if (payload.memberType !== undefined) member.memberType = payload.memberType;
-    if (payload.status !== undefined || payload.membershipStatus !== undefined) {
+    if (payload.memberType !== undefined)
+      member.memberType = payload.memberType;
+    if (payload.gender !== undefined) member.gender = payload.gender;
+    if (payload.address !== undefined) member.address = payload.address;
+    if (payload.avatarUrl !== undefined || payload.avatar !== undefined) {
+      member.avatarUrl = payload.avatarUrl ?? payload.avatar;
+    }
+    if (
+      payload.status !== undefined ||
+      payload.membershipStatus !== undefined
+    ) {
       member.status = payload.status ?? payload.membershipStatus;
     }
 
@@ -181,7 +201,9 @@ export class MembersService {
 
   private toDateString(date?: Date | string) {
     if (!date) return undefined;
-    return typeof date === 'string' ? date.slice(0, 10) : date.toISOString().slice(0, 10);
+    return typeof date === 'string'
+      ? date.slice(0, 10)
+      : date.toISOString().slice(0, 10);
   }
 
   private toMemberResponse(member: Member) {
@@ -205,6 +227,10 @@ export class MembersService {
       phone: member.phone ?? member.user?.phone ?? '',
       dateOfBirth: this.toDateString(member.dateOfBirth),
       memberType: member.memberType ?? 'standard',
+      gender: member.gender,
+      address: member.address ?? '',
+      avatar: member.avatarUrl,
+      avatarUrl: member.avatarUrl,
       joinDate: this.toDateString(member.joinDate),
       status: member.status ?? 'expired',
       membershipStatus: member.status ?? 'expired',

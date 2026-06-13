@@ -3,6 +3,13 @@ import { useNavigate } from "react-router-dom";
 import { AlertCircle, Dumbbell, Lock, Mail } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 
+const getPostLoginRoute = (role: string) =>
+  role === "member"
+    ? "/packages"
+    : role === "trainer"
+      ? "/schedules"
+      : "/reports";
+
 export const Login: React.FC = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -18,11 +25,7 @@ export const Login: React.FC = () => {
 
     try {
       const loggedInUser = await login(email, password);
-      navigate(
-        loggedInUser.role === "manager" || loggedInUser.role === "cashier"
-          ? "/reports"
-          : "/dashboard",
-      );
+      navigate(getPostLoginRoute(loggedInUser.role));
     } catch {
       setError("Email hoặc mật khẩu không đúng");
     } finally {

@@ -12,23 +12,30 @@ type ApiUser = {
   fullName?: string;
   full_name?: string;
   name?: string;
+  email?: string;
 };
 
 type ApiMember = {
   id?: number | string;
+  userId?: number | string;
+  user_id?: number | string;
   fullName?: string;
   full_name?: string;
   name?: string;
+  email?: string;
   user?: ApiUser;
 };
 
 type ApiSchedule = {
   id?: number | string;
   memberId?: number | string;
+  member_id?: number | string;
   trainerId?: number | string;
+  trainer_id?: number | string;
   member?: ApiMember;
   trainer?: ApiUser;
   type?: string;
+  date?: string;
   startTime?: string;
   start_time?: string;
   endTime?: string;
@@ -40,6 +47,7 @@ type ApiSchedule = {
 type ApiTrainerProfile = {
   id?: number | string;
   userId?: number | string;
+  user_id?: number | string;
   user?: ApiUser;
 };
 
@@ -53,11 +61,19 @@ type ScheduleForm = {
   notes: string;
 };
 
+const toDateInputValue = (date: Date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
+};
+
 const emptyScheduleForm = (): ScheduleForm => ({
   memberId: "",
   trainerId: "",
   type: "pt",
-  date: new Date().toISOString().slice(0, 10),
+  date: toDateInputValue(new Date()),
   startTime: "",
   endTime: "",
   notes: "",
@@ -109,9 +125,12 @@ const getTime = (value?: string) => {
 
 const getDate = (value?: string) => {
   if (!value) return "";
+  const datePart = value.match(/^\d{4}-\d{2}-\d{2}/)?.[0];
+  if (datePart) return datePart;
+
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value.slice(0, 10);
-  return date.toISOString().slice(0, 10);
+  if (Number.isNaN(date.getTime())) return "";
+  return toDateInputValue(date);
 };
 
 const getMemberName = (member?: ApiMember) =>
@@ -126,24 +145,47 @@ const getMemberName = (member?: ApiMember) =>
 const getUserName = (user?: ApiUser) =>
   user?.fullName ?? user?.full_name ?? user?.name ?? "";
 
-const mapApiSchedule = (schedule: ApiSchedule): Schedule => ({
-  id: String(schedule.id ?? ""),
-  memberId: String(schedule.memberId ?? schedule.member?.id ?? ""),
-  memberName: getMemberName(schedule.member),
-  trainerId:
+const getTrainerUserId = (trainer?: ApiTrainerProfile) =>
+  trainer?.userId !== undefined
+    ? String(trainer.userId)
+    : trainer?.user_id !== undefined
+      ? String(trainer.user_id)
+      : trainer?.user?.id !== undefined
+        ? String(trainer.user.id)
+        : "";
+
+const mapApiSchedule = (schedule: ApiSchedule): Schedule => {
+  const trainerId =
     schedule.trainerId !== undefined
       ? String(schedule.trainerId)
+      : schedule.trainer_id !== undefined
+        ? String(schedule.trainer_id)
       : schedule.trainer?.id !== undefined
         ? String(schedule.trainer.id)
-        : undefined,
-  trainerName: getUserName(schedule.trainer),
-  date: getDate(schedule.startTime ?? schedule.start_time),
-  startTime: getTime(schedule.startTime ?? schedule.start_time),
-  endTime: getTime(schedule.endTime ?? schedule.end_time),
-  type: normalizeScheduleType(schedule.type),
-  status: normalizeScheduleStatus(schedule.status),
-  notes: schedule.notes,
-});
+        : "";
+
+  const mappedSchedule: Schedule = {
+    id: String(schedule.id ?? ""),
+    memberId: String(schedule.memberId ?? schedule.member_id ?? schedule.member?.id ?? ""),
+    memberName: getMemberName(schedule.member),
+    trainerName: getUserName(schedule.trainer),
+    date: getDate(schedule.startTime ?? schedule.start_time ?? schedule.date),
+    startTime: getTime(schedule.startTime ?? schedule.start_time),
+    endTime: getTime(schedule.endTime ?? schedule.end_time),
+    type: normalizeScheduleType(schedule.type),
+    status: normalizeScheduleStatus(schedule.status),
+  };
+
+  if (trainerId) {
+    mappedSchedule.trainerId = trainerId;
+  }
+
+  if (schedule.notes) {
+    mappedSchedule.notes = schedule.notes;
+  }
+
+  return mappedSchedule;
+};
 
 export const Schedules: React.FC = () => {
   const { user } = useAuth();
@@ -155,18 +197,38 @@ export const Schedules: React.FC = () => {
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [trainers, setTrainers] = useState<ApiTrainerProfile[]>([]);
   const [selectedDate, setSelectedDate] = useState(
-    new Date().toISOString().slice(0, 10),
+    toDateInputValue(new Date()),
   );
   const [showModal, setShowModal] = useState(false);
   const [scheduleForm, setScheduleForm] = useState<ScheduleForm>(
     emptyScheduleForm,
   );
-  const currentMember = members.find(
-    (member) =>
-      member.userId === user?.id ||
-      member.email === user?.email ||
-      member.name === user?.name,
-  );
+  const currentMember = user
+    ? members.find((member) => member.userId === user.id) ??
+      members.find((member) => member.email === user.email) ??
+      members.find(
+        (member) =>
+          !member.userId &&
+          !member.email &&
+          member.name === user.name,
+      )
+    : undefined;
+  const currentTrainer = user
+    ? trainers.find(
+        (trainer) =>
+          getTrainerUserId(trainer) === user.id ||
+          trainer.user?.email === user.email,
+      )
+    : undefined;
+  const currentTrainerIds = [
+    user?.id,
+    currentTrainer?.id !== undefined ? String(currentTrainer.id) : "",
+    getTrainerUserId(currentTrainer),
+  ].filter(Boolean);
+  const currentMemberIds = [
+    currentMember?.id,
+    currentMember?.userId,
+  ].filter(Boolean);
   const memberHasAssignedPt =
     currentMember?.hasActivePtPackage === true &&
     Boolean(currentMember.trainerId);
@@ -223,10 +285,12 @@ export const Schedules: React.FC = () => {
       return;
     }
 
-    if (!scheduleForm.memberId && selectableMembers[0]) {
+    const firstSelectableMember = selectableMembers[0];
+
+    if (!scheduleForm.memberId && firstSelectableMember) {
       setScheduleForm((current) => ({
         ...current,
-        memberId: selectableMembers[0].id,
+        memberId: firstSelectableMember.id,
       }));
     }
   }, [currentMember, isMember, scheduleForm.memberId, selectableMembers]);
@@ -243,8 +307,14 @@ export const Schedules: React.FC = () => {
   const visibleSchedules = isTrainer
     ? schedules.filter(
         (schedule) =>
-          schedule.trainerId === user?.id || schedule.trainerName === user?.name,
+          schedule.trainerId
+            ? currentTrainerIds.includes(schedule.trainerId)
+            : schedule.trainerName === user?.name,
       )
+    : isMember
+      ? schedules.filter((schedule) =>
+          currentMemberIds.includes(schedule.memberId),
+        )
     : schedules;
   const filteredSchedules = visibleSchedules.filter(
     (schedule) => schedule.date === selectedDate,

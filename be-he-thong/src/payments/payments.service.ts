@@ -1,4 +1,8 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { CreatePaymentDto } from './dto/create-payment.dto';
@@ -34,8 +38,15 @@ export class PaymentsService {
       memberPackage,
       amount: Number(payload.amount ?? 0),
       method: payload.method ?? 'cash',
-      status: payload.status ?? 'paid',
+      status: this.normalizePaymentStatus(payload.status ?? 'paid'),
     });
+
+    if (payment.status === 'paid') {
+      await this.activateMemberPackage(memberPackage);
+    }
+    if (payment.status === 'cancelled') {
+      await this.cancelMemberPackage(memberPackage);
+    }
 
     return this.toPaymentResponse(await this.paymentsRepository.save(payment));
   }
@@ -76,7 +87,17 @@ export class PaymentsService {
     }
     if (payload.amount !== undefined) payment.amount = Number(payload.amount);
     if (payload.method !== undefined) payment.method = payload.method;
-    if (payload.status !== undefined) payment.status = payload.status;
+    if (payload.status !== undefined) {
+      payment.status = this.normalizePaymentStatus(payload.status);
+
+      if (payment.status === 'paid') {
+        await this.activateMemberPackage(payment.memberPackage);
+      }
+
+      if (payment.status === 'cancelled') {
+        await this.cancelMemberPackage(payment.memberPackage);
+      }
+    }
 
     return this.toPaymentResponse(await this.paymentsRepository.save(payment));
   }
@@ -105,6 +126,7 @@ export class PaymentsService {
           user: true,
         },
         memberPackage: {
+          member: true,
           package: true,
         },
       },
@@ -144,6 +166,7 @@ export class PaymentsService {
         id,
       },
       relations: {
+        member: true,
         package: true,
       },
     });
@@ -153,6 +176,92 @@ export class PaymentsService {
     }
 
     return memberPackage;
+  }
+
+  private normalizePaymentStatus(status?: string) {
+    if (status === 'paid' || status === 'completed') {
+      return 'paid';
+    }
+
+    if (status === 'cancelled' || status === 'failed') {
+      return 'cancelled';
+    }
+
+    return 'pending';
+  }
+
+  private async activateMemberPackage(memberPackage?: MemberPackage) {
+    if (!memberPackage) {
+      return;
+    }
+
+    const memberId = memberPackage.member?.id;
+    if (memberId) {
+      const activeMemberPackages = await this.memberPackagesRepository.find({
+        where: {
+          member: {
+            id: memberId,
+          },
+          status: 'active',
+        },
+        relations: {
+          package: true,
+        },
+        order: {
+          endDate: 'DESC',
+        },
+      });
+      const activeDifferentPackage = activeMemberPackages.find(
+        (activeMemberPackage) =>
+          activeMemberPackage.id !== memberPackage.id &&
+          !this.isExpired(activeMemberPackage.endDate) &&
+          activeMemberPackage.package?.id !== memberPackage.package?.id,
+      );
+
+      if (activeDifferentPackage) {
+        throw new BadRequestException(
+          'Hội viên vẫn còn gói tập đang hiệu lực. Chỉ có thể đổi gói sau khi gói hiện tại hết hạn.',
+        );
+      }
+    }
+
+    const startDate = new Date();
+    memberPackage.status = 'active';
+    memberPackage.startDate = startDate;
+    memberPackage.endDate = this.addDays(
+      startDate,
+      Number(
+        memberPackage.package?.durationDays ??
+          memberPackage.packageDurationDaysSnapshot ??
+          0,
+      ),
+    );
+
+    await this.memberPackagesRepository.save(memberPackage);
+  }
+
+  private async cancelMemberPackage(memberPackage?: MemberPackage) {
+    if (!memberPackage || memberPackage.status === 'active') {
+      return;
+    }
+
+    memberPackage.status = 'cancelled';
+    await this.memberPackagesRepository.save(memberPackage);
+  }
+
+  private addDays(date: Date, days: number) {
+    const nextDate = new Date(date);
+    nextDate.setDate(nextDate.getDate() + days);
+    return nextDate;
+  }
+
+  private isExpired(endDate?: Date | string) {
+    const endDateString = this.toDateString(endDate);
+    if (!endDateString) {
+      return false;
+    }
+
+    return endDateString.slice(0, 10) < new Date().toISOString().slice(0, 10);
   }
 
   private toDateString(date?: Date | string) {

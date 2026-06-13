@@ -16,7 +16,7 @@ export const Unauthorized: React.FC = () => {
           Bạn không có quyền truy cập vào trang này.
         </p>
         <Link
-          to="/dashboard"
+          to="/"
           className="inline-flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
         >
           <Home size={20} />

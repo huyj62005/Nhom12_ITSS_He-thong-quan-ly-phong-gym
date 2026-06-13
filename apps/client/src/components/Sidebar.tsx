@@ -3,7 +3,6 @@ import { Link, useLocation } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { useGymData } from "../contexts/GymDataContext";
 import {
-  LayoutDashboard,
   Users,
   Package,
   CreditCard,
@@ -11,7 +10,6 @@ import {
   Dumbbell,
   TrendingUp,
   MessageSquare,
-  Settings,
   ClipboardList,
 } from "lucide-react";
 
@@ -24,12 +22,6 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   {
-    path: "/dashboard",
-    label: "Dashboard",
-    icon: <LayoutDashboard size={20} />,
-    roles: ["admin", "trainer", "member"],
-  },
-  {
     path: "/members",
     label: "Quản Lý Hội Viên",
     icon: <Users size={20} />,
@@ -39,7 +31,7 @@ const navItems: NavItem[] = [
     path: "/packages",
     label: "Gói Tập",
     icon: <Package size={20} />,
-    roles: ["admin", "manager", "cashier"],
+    roles: ["admin", "manager", "cashier", "member"],
   },
   {
     path: "/payments",
@@ -83,24 +75,19 @@ const navItems: NavItem[] = [
     icon: <TrendingUp size={20} />,
     roles: ["admin", "manager", "cashier"],
   },
-  {
-    path: "/settings",
-    label: "Cài Đặt",
-    icon: <Settings size={20} />,
-    roles: ["admin"],
-  },
 ];
 
 export const Sidebar: React.FC = () => {
   const location = useLocation();
   const { user } = useAuth();
   const { members } = useGymData();
-  const currentMember = members.find(
-    (member) =>
-      member.userId === user?.id ||
-      member.email === user?.email ||
-      member.name === user?.name,
-  );
+  const currentMember = user
+    ? members.find(
+        (member) =>
+          member.userId === user.id ||
+          (!member.userId && member.email === user.email),
+      )
+    : undefined;
   const memberHasActivePtPackage =
     currentMember?.hasActivePtPackage === true &&
     Boolean(currentMember.trainerId);

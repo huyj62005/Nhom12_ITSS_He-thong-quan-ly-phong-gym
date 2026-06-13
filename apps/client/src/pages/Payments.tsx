@@ -14,10 +14,12 @@ import {
   User,
 } from "lucide-react";
 import { Payment, Member } from "../types";
+import { useAuth } from "../contexts/AuthContext";
 import {
   getPackageDisplayName,
   isValidDisplayPackage,
 } from "../utils/packageNames";
+import { isMemberPackageStillValid } from "../utils/membership";
 
 const formatCurrency = (amount: number) =>
   new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND" }).format(
@@ -25,12 +27,26 @@ const formatCurrency = (amount: number) =>
   );
 
 const getStatusColor = (status: string) => {
-  return status === "completed"
-    ? "bg-green-100 text-green-800"
-    : "bg-green-100 text-green-800";
+  switch (status) {
+    case "completed":
+      return "bg-green-100 text-green-800";
+    case "failed":
+      return "bg-red-100 text-red-800";
+    default:
+      return "bg-amber-100 text-amber-800";
+  }
 };
 
-const getStatusText = () => "Đã thanh toán";
+const getStatusText = (status: string) => {
+  switch (status) {
+    case "completed":
+      return "Đã hoàn thành";
+    case "failed":
+      return "Đã từ chối";
+    default:
+      return "Chờ duyệt";
+  }
+};
 
 const getMethodText = (method: string) => {
   switch (method) {
@@ -44,6 +60,12 @@ const getMethodText = (method: string) => {
       return method;
   }
 };
+
+const getPaymentPackageName = (packageName?: string) =>
+  packageName?.trim() || "Chưa có gói tập";
+
+const formatPaymentDate = (date: string) =>
+  date ? new Date(date).toLocaleDateString("vi-VN") : "-";
 
 type PaymentAction = "new" | "renew" | "change";
 
@@ -97,17 +119,23 @@ const mapTrainerOption = (trainer: ApiTrainerProfile): TrainerOption => ({
 });
 
 export const Payments: React.FC = () => {
+  const { user } = useAuth();
   const {
     members,
     payments,
     packages,
     addPayment,
+    confirmPayment,
+    cancelPayment,
   } = useGymData();
 
   const [searchTerm, setSearchTerm] = useState("");
   const [showModal, setShowModal] = useState(false);
   const [viewPayment, setViewPayment] = useState<Payment | null>(null);
   const [toast, setToast] = useState<ToastState | null>(null);
+  const [updatingPaymentId, setUpdatingPaymentId] = useState<string | null>(
+    null,
+  );
 
   // Payment form state
   const [memberSearch, setMemberSearch] = useState("");
@@ -152,7 +180,9 @@ export const Payments: React.FC = () => {
         setTrainers(
           Array.isArray(apiTrainers)
             ? apiTrainers
-                .map((trainer) => mapTrainerOption(trainer as ApiTrainerProfile))
+                .map((trainer) =>
+                  mapTrainerOption(trainer as ApiTrainerProfile),
+                )
                 .filter((trainer) => trainer.id)
             : [],
         );
@@ -180,38 +210,45 @@ export const Payments: React.FC = () => {
   const filteredPayments = payments.filter((p) => {
     const matchesSearch =
       p.memberName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      getPackageDisplayName({ name: p.packageName })
+      getPaymentPackageName(p.packageName)
         .toLowerCase()
         .includes(searchTerm.toLowerCase());
-    return matchesSearch && p.status === "completed";
+    return matchesSearch;
   });
 
   const totalRevenue = payments
     .filter((p) => p.status === "completed")
     .reduce((s, p) => s + p.amount, 0);
+  const completedPaymentCount = payments.filter(
+    (p) => p.status === "completed",
+  ).length;
+  const pendingPaymentCount = payments.filter(
+    (p) => p.status === "pending",
+  ).length;
+  const failedPaymentCount = payments.filter(
+    (p) => p.status === "failed",
+  ).length;
+  const canApprovePayment = user?.role === "admin" || user?.role === "manager";
 
   const selectMember = (member: Member) => {
     setSelectedMember(member);
     setMemberSearch(member.name);
     setShowMemberDropdown(false);
 
-    // Set default action based on current package
-    if (!member.currentPackage) {
-      setPaymentAction("new");
-    } else if (member.membershipStatus === "active") {
+    if (isMemberPackageStillValid(member)) {
       setPaymentAction("renew");
+      setSelectedPackageId(member.currentPackage?.id ?? "");
     } else {
       setPaymentAction("new");
+      setSelectedPackageId("");
     }
-    setSelectedPackageId("");
     setSelectedTrainerId("");
   };
 
   const selectedPackage = packages.find((p) => p.id === selectedPackageId);
   const requiresTrainer = selectedPackage?.type === "pt";
-  const hasActivePackage =
-    selectedMember?.currentPackage &&
-    selectedMember.membershipStatus === "active";
+  const hasCurrentPackage = Boolean(selectedMember?.currentPackage);
+  const isCurrentPackageStillValid = isMemberPackageStillValid(selectedMember);
 
   const resetModal = () => {
     setShowModal(false);
@@ -235,6 +272,16 @@ export const Payments: React.FC = () => {
       showToast("Vui lòng chọn gói tập!", "error");
       return;
     }
+    if (
+      paymentAction === "change" &&
+      isMemberPackageStillValid(selectedMember)
+    ) {
+      showToast(
+        "Hội viên vẫn còn gói tập đang hiệu lực. Chỉ có thể đổi gói sau khi gói hiện tại hết hạn.",
+        "error",
+      );
+      return;
+    }
     const pkg = packages.find((p) => p.id === selectedPackageId)!;
     if (pkg.type === "pt" && !selectedTrainerId) {
       showToast("Vui long chon PT cho goi PT!", "error");
@@ -249,24 +296,75 @@ export const Payments: React.FC = () => {
       method: paymentMethod,
       status: "completed",
       packageId: pkg.id,
-      packageName: getPackageDisplayName(pkg),
+      packageName: pkg.name,
       paymentDate: new Date().toISOString().slice(0, 10),
-      processedBy: "Thu Ngân",
       notes: note,
     };
 
+    if (user?.name) {
+      newPayment.processedBy = user.name;
+    }
+
     try {
-      await addPayment(newPayment, pkg.type === "pt" ? selectedTrainerId : undefined);
-    resetModal();
-    showToast(
-      `Thanh toán thành công! Gói "${getPackageDisplayName(pkg)}" đã được kích hoạt cho ${selectedMember.name}.`,
-      "success",
-    );
+      await addPayment(
+        newPayment,
+        pkg.type === "pt" ? selectedTrainerId : undefined,
+      );
+      resetModal();
+      showToast(
+        `Thanh toán thành công! Gói "${getPackageDisplayName(pkg)}" đã được kích hoạt cho ${selectedMember.name}.`,
+        "success",
+      );
     } catch (error) {
       showToast(
         error instanceof Error ? error.message : "Khong the tao thanh toan!",
         "error",
       );
+    }
+  };
+
+  const handleApprovePayment = async (paymentId: string) => {
+    setUpdatingPaymentId(paymentId);
+
+    try {
+      await confirmPayment(paymentId);
+      setViewPayment((prev) =>
+        prev?.id === paymentId ? { ...prev, status: "completed" } : prev,
+      );
+      showToast(
+        "Giao dịch đã được duyệt và gói tập đã được kích hoạt.",
+        "success",
+      );
+    } catch (error) {
+      showToast(
+        error instanceof Error ? error.message : "Không thể duyệt giao dịch!",
+        "error",
+      );
+    } finally {
+      setUpdatingPaymentId(null);
+    }
+  };
+
+  const handleRejectPayment = async (paymentId: string) => {
+    if (!window.confirm("Bạn chắc chắn muốn từ chối giao dịch này?")) {
+      return;
+    }
+
+    setUpdatingPaymentId(paymentId);
+
+    try {
+      await cancelPayment(paymentId);
+      setViewPayment((prev) =>
+        prev?.id === paymentId ? { ...prev, status: "failed" } : prev,
+      );
+      showToast("Giao dịch đã được từ chối.", "success");
+    } catch (error) {
+      showToast(
+        error instanceof Error ? error.message : "Không thể từ chối giao dịch!",
+        "error",
+      );
+    } finally {
+      setUpdatingPaymentId(null);
     }
   };
 
@@ -315,7 +413,7 @@ export const Payments: React.FC = () => {
         </div>
 
         {/* Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           {[
             {
               label: "Tổng doanh thu",
@@ -323,11 +421,19 @@ export const Payments: React.FC = () => {
               color: "text-gray-900",
             },
             {
-              label: "Đã thanh toán",
-              value: payments
-                .filter((p) => p.status === "completed")
-                .length.toString(),
+              label: "Chờ duyệt",
+              value: pendingPaymentCount.toString(),
+              color: "text-amber-600",
+            },
+            {
+              label: "Đã hoàn thành",
+              value: completedPaymentCount.toString(),
               color: "text-green-600",
+            },
+            {
+              label: "Đã từ chối",
+              value: failedPaymentCount.toString(),
+              color: "text-red-600",
             },
           ].map((s) => (
             <div
@@ -408,7 +514,7 @@ export const Payments: React.FC = () => {
                         {payment.memberName}
                       </td>
                       <td className="px-5 py-4 whitespace-nowrap text-sm text-gray-700">
-                        {getPackageDisplayName({ name: payment.packageName })}
+                        {getPaymentPackageName(payment.packageName)}
                       </td>
                       <td className="px-5 py-4 whitespace-nowrap text-sm font-bold text-gray-900">
                         {formatCurrency(payment.amount)}
@@ -420,17 +526,43 @@ export const Payments: React.FC = () => {
                         <span
                           className={`px-2.5 py-1 inline-flex text-xs font-semibold rounded-full ${getStatusColor(payment.status)}`}
                         >
-                          {getStatusText()}
+                          {getStatusText(payment.status)}
                         </span>
                       </td>
                       <td className="px-5 py-4 whitespace-nowrap text-sm text-gray-700">
-                        {new Date(payment.paymentDate).toLocaleDateString(
-                          "vi-VN",
-                        )}
+                        {formatPaymentDate(payment.paymentDate)}
                       </td>
                       <td className="px-5 py-4 whitespace-nowrap text-right">
                         <div className="flex items-center justify-end gap-1.5">
+                          {payment.status === "pending" &&
+                            canApprovePayment && (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleApprovePayment(payment.id)
+                                  }
+                                  disabled={updatingPaymentId === payment.id}
+                                  className="p-1.5 text-green-600 hover:bg-green-50 rounded-lg transition-colors disabled:opacity-40"
+                                  title="Duyệt giao dịch"
+                                >
+                                  <CheckCircle size={17} />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleRejectPayment(payment.id)
+                                  }
+                                  disabled={updatingPaymentId === payment.id}
+                                  className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-40"
+                                  title="Từ chối giao dịch"
+                                >
+                                  <X size={17} />
+                                </button>
+                              </>
+                            )}
                           <button
+                            type="button"
                             onClick={() => setViewPayment(payment)}
                             className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
                             title="Xem chi tiết"
@@ -559,7 +691,7 @@ export const Payments: React.FC = () => {
               {/* Selected member info */}
               {selectedMember && (
                 <div
-                  className={`rounded-xl border p-4 ${hasActivePackage ? "bg-green-50 border-green-200" : "bg-amber-50 border-amber-200"}`}
+                  className={`rounded-xl border p-4 ${isCurrentPackageStillValid ? "bg-green-50 border-green-200" : "bg-amber-50 border-amber-200"}`}
                 >
                   <div className="flex items-center gap-3 mb-3">
                     <img
@@ -580,15 +712,36 @@ export const Payments: React.FC = () => {
                     </div>
                   </div>
 
-                  {hasActivePackage ? (
+                  {hasCurrentPackage ? (
                     <div>
                       <div className="flex items-center gap-2 mb-3">
-                        <CreditCard size={14} className="text-green-600" />
-                        <p className="text-xs font-semibold text-green-700">
-                          Gói hiện tại đang hoạt động
+                        <CreditCard
+                          size={14}
+                          className={
+                            isCurrentPackageStillValid
+                              ? "text-green-600"
+                              : "text-amber-600"
+                          }
+                        />
+                        <p
+                          className={`text-xs font-semibold ${
+                            isCurrentPackageStillValid
+                              ? "text-green-700"
+                              : "text-amber-700"
+                          }`}
+                        >
+                          {isCurrentPackageStillValid
+                            ? "Gói hiện tại đang hoạt động"
+                            : "Gói hiện tại đã hết hạn"}
                         </p>
                       </div>
-                      <div className="bg-white rounded-lg px-3 py-2.5 border border-green-200">
+                      <div
+                        className={`bg-white rounded-lg px-3 py-2.5 border ${
+                          isCurrentPackageStillValid
+                            ? "border-green-200"
+                            : "border-amber-200"
+                        }`}
+                      >
                         <p className="text-sm font-medium text-gray-900">
                           {getPackageDisplayName(selectedMember.currentPackage)}
                         </p>
@@ -617,14 +770,33 @@ export const Payments: React.FC = () => {
                         <button
                           type="button"
                           onClick={() => {
+                            if (isCurrentPackageStillValid) {
+                              showToast(
+                                "Hội viên vẫn còn gói tập đang hiệu lực. Chỉ có thể đổi gói sau khi gói hiện tại hết hạn.",
+                                "error",
+                              );
+                              return;
+                            }
                             setPaymentAction("change");
                             setSelectedPackageId("");
                           }}
-                          className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg border text-xs font-medium transition-colors ${paymentAction === "change" ? "bg-blue-600 text-white border-blue-600" : "border-gray-300 text-gray-600 hover:bg-gray-50"}`}
+                          aria-disabled={isCurrentPackageStillValid}
+                          className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg border text-xs font-medium transition-colors ${
+                            isCurrentPackageStillValid
+                              ? "border-amber-300 bg-amber-50 text-amber-700 cursor-not-allowed"
+                              : paymentAction === "change"
+                                ? "bg-blue-600 text-white border-blue-600"
+                                : "border-gray-300 text-gray-600 hover:bg-gray-50"
+                          }`}
                         >
                           <RefreshCw size={13} /> Đổi gói
                         </button>
                       </div>
+                      {isCurrentPackageStillValid && (
+                        <p className="mt-2 text-xs text-amber-700">
+                          Chỉ có thể đổi gói sau khi gói hiện tại hết hạn.
+                        </p>
+                      )}
                     </div>
                   ) : (
                     <div className="flex items-center gap-2">
@@ -667,7 +839,9 @@ export const Payments: React.FC = () => {
                       <div className="flex items-center justify-between">
                         <div>
                           <p className="text-sm font-semibold text-gray-900">
-                            {getPackageDisplayName(selectedMember.currentPackage)}
+                            {getPackageDisplayName(
+                              selectedMember.currentPackage,
+                            )}
                           </p>
                           <p className="text-xs text-gray-500 mt-0.5">
                             {selectedMember.currentPackage!.description}
@@ -680,49 +854,63 @@ export const Payments: React.FC = () => {
                     </div>
                   ) : (
                     <div className="grid gap-3">
-                      {(paymentAction === "change"
-                        ? changePackages
-                        : availablePaymentPackages
-                      ).map((pkg) => (
-                        <div
-                          key={pkg.id}
-                          onClick={() => {
-                            setSelectedPackageId(pkg.id);
-                            if (pkg.type !== "pt") setSelectedTrainerId("");
-                          }}
-                          className={`border-2 rounded-xl p-4 cursor-pointer transition-all ${selectedPackageId === pkg.id ? "border-blue-500 bg-blue-50" : "border-gray-200 hover:border-gray-300"}`}
-                        >
-                          <div className="flex items-center justify-between">
-                            <div className="flex-1">
-                              <p className="text-sm font-semibold text-gray-900">
-                                {getPackageDisplayName(pkg)}
-                              </p>
-                              <p className="text-xs text-gray-500 mt-0.5">
-                                {pkg.description}
-                              </p>
-                              <div className="flex flex-wrap gap-1 mt-2">
-                                {pkg.features.slice(0, 3).map((f) => (
-                                  <span
-                                    key={f}
-                                    className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded"
-                                  >
-                                    {f}
-                                  </span>
-                                ))}
+                      {paymentAction === "change" &&
+                      isCurrentPackageStillValid ? (
+                        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+                          <p className="text-sm font-medium text-amber-800">
+                            Không thể đổi gói khi gói hiện tại vẫn còn hiệu lực.
+                          </p>
+                          <p className="mt-1 text-xs text-amber-700">
+                            Hãy gia hạn gói hiện tại hoặc đổi gói sau ngày hết
+                            hạn.
+                          </p>
+                        </div>
+                      ) : (
+                        (paymentAction === "change"
+                          ? changePackages
+                          : availablePaymentPackages
+                        ).map((pkg) => (
+                          <div
+                            key={pkg.id}
+                            onClick={() => {
+                              setSelectedPackageId(pkg.id);
+                              if (pkg.type !== "pt") setSelectedTrainerId("");
+                            }}
+                            className={`border-2 rounded-xl p-4 cursor-pointer transition-all ${selectedPackageId === pkg.id ? "border-blue-500 bg-blue-50" : "border-gray-200 hover:border-gray-300"}`}
+                          >
+                            <div className="flex items-center justify-between">
+                              <div className="flex-1">
+                                <p className="text-sm font-semibold text-gray-900">
+                                  {getPackageDisplayName(pkg)}
+                                </p>
+                                <p className="text-xs text-gray-500 mt-0.5">
+                                  {pkg.description}
+                                </p>
+                                <div className="flex flex-wrap gap-1 mt-2">
+                                  {pkg.features.slice(0, 3).map((f) => (
+                                    <span
+                                      key={f}
+                                      className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded"
+                                    >
+                                      {f}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                              <div className="text-right ml-4">
+                                <p className="text-lg font-bold text-blue-600">
+                                  {formatCurrency(pkg.price)}
+                                </p>
+                                <p className="text-xs text-gray-400">
+                                  {pkg.duration} ngày
+                                </p>
                               </div>
                             </div>
-                            <div className="text-right ml-4">
-                              <p className="text-lg font-bold text-blue-600">
-                                {formatCurrency(pkg.price)}
-                              </p>
-                              <p className="text-xs text-gray-400">
-                                {pkg.duration} ngày
-                              </p>
-                            </div>
                           </div>
-                        </div>
-                      ))}
+                        ))
+                      )}
                       {paymentAction === "change" &&
+                        !isCurrentPackageStillValid &&
                         changePackages.length === 0 && (
                           <p className="text-sm text-gray-400 text-center py-4">
                             Không có gói khác để đổi.
@@ -753,8 +941,8 @@ export const Payments: React.FC = () => {
                     ))}
                   </select>
                   <p className="text-xs text-gray-500 mt-1">
-                    Gói PT yêu cầu chọn đúng 1 PT. PT này sẽ được lưu vào gói tập
-                    của hội viên.
+                    Gói PT yêu cầu chọn đúng 1 PT. PT này sẽ được lưu vào gói
+                    tập của hội viên.
                   </p>
                 </div>
               )}
@@ -889,7 +1077,7 @@ export const Payments: React.FC = () => {
                 { label: "Hội viên", value: viewPayment.memberName },
                 {
                   label: "Gói tập",
-                  value: getPackageDisplayName({ name: viewPayment.packageName }),
+                  value: getPaymentPackageName(viewPayment.packageName),
                 },
                 { label: "Số tiền", value: formatCurrency(viewPayment.amount) },
                 {
@@ -897,10 +1085,11 @@ export const Payments: React.FC = () => {
                   value: getMethodText(viewPayment.method),
                 },
                 {
-                  label: "Ngày thanh toán",
-                  value: new Date(viewPayment.paymentDate).toLocaleDateString(
-                    "vi-VN",
-                  ),
+                  label:
+                    viewPayment.status === "completed"
+                      ? "Ngày thanh toán"
+                      : "Ngày tạo",
+                  value: formatPaymentDate(viewPayment.paymentDate),
                 },
                 { label: "Người xử lý", value: viewPayment.processedBy || "-" },
               ].map(({ label, value }) => (
@@ -919,11 +1108,31 @@ export const Payments: React.FC = () => {
                 <span
                   className={`px-2.5 py-1 text-xs font-semibold rounded-full ${getStatusColor(viewPayment.status)}`}
                 >
-                  {getStatusText()}
+                  {getStatusText(viewPayment.status)}
                 </span>
               </div>
             </div>
-            <div className="p-6 pt-0">
+            <div className="p-6 pt-0 space-y-3">
+              {viewPayment.status === "pending" && canApprovePayment && (
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => handleApprovePayment(viewPayment.id)}
+                    disabled={updatingPaymentId === viewPayment.id}
+                    className="py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-40 transition-colors font-medium text-sm"
+                  >
+                    Duyệt giao dịch
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleRejectPayment(viewPayment.id)}
+                    disabled={updatingPaymentId === viewPayment.id}
+                    className="py-2.5 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-40 transition-colors font-medium text-sm"
+                  >
+                    Từ chối
+                  </button>
+                </div>
+              )}
               <button
                 onClick={() => setViewPayment(null)}
                 className="w-full py-2.5 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors font-medium text-sm"

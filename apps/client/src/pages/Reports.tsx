@@ -45,14 +45,22 @@ type ReportSchedule = {
   startTime?: string;
   start_time?: string;
   date?: string;
+  status?: string;
 };
 
 type ReportEquipment = {
   status?: string;
+  needsMaintenanceSoon?: boolean;
+  maintenanceState?: {
+    overdue?: boolean;
+    dueSoon?: boolean;
+  };
 };
 
 type ReportMemberPackage = {
   packageId?: number | string;
+  packageNameSnapshot?: string;
+  package_name_snapshot?: string;
   package?: {
     name?: string;
     duration?: number | string;
@@ -114,19 +122,23 @@ const getPaymentDate = (payment: ReportPayment) =>
   getDateString(payment.paymentDate ?? payment.paidAt ?? payment.paid_at);
 
 const isPaidPayment = (payment: ReportPayment) =>
-  payment.status === "paid" || payment.status === "completed" || !payment.status;
+  payment.status === "paid" || payment.status === "completed";
 
 const getPackageName = (memberPackage: ReportMemberPackage) => {
   const pkg = memberPackage.package;
-  const name = pkg?.name ?? "";
+  const name =
+    pkg?.name ??
+    memberPackage.packageNameSnapshot ??
+    memberPackage.package_name_snapshot ??
+    "";
   const duration = Number(pkg?.duration ?? pkg?.durationDays ?? 0);
 
-  if (name) return name;
+  if (name.trim()) return name.trim();
   if (pkg?.type === "pt") return "Gói PT";
   if (duration >= 360) return "Gói 12 tháng";
   if (duration >= 180) return "Gói 6 tháng";
   if (duration >= 80) return "Gói 3 tháng";
-  return "Gói PT";
+  return "Gói tập";
 };
 
 const encoder = new TextEncoder();
@@ -234,7 +246,18 @@ const createZipBlob = (files: { name: string; content: string }[]) => {
   pushUint32(endRecord, offset);
   pushUint16(endRecord, 0);
 
-  return new Blob([...localParts, ...centralParts, new Uint8Array(endRecord)], {
+  const toArrayBuffer = (part: Uint8Array) =>
+    part.buffer.slice(
+      part.byteOffset,
+      part.byteOffset + part.byteLength,
+    ) as ArrayBuffer;
+  const blobParts: BlobPart[] = [
+    ...localParts.map(toArrayBuffer),
+    ...centralParts.map(toArrayBuffer),
+    toArrayBuffer(new Uint8Array(endRecord)),
+  ];
+
+  return new Blob(blobParts, {
     type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   });
 };
@@ -375,10 +398,15 @@ export const Reports: React.FC = () => {
         scheduledSessions: schedules.filter(
           (schedule) =>
             getDateString(schedule.date ?? schedule.startTime ?? schedule.start_time) ===
-            today,
+              today &&
+            (schedule.status === undefined || schedule.status === "scheduled"),
         ).length,
         equipmentMaintenance: equipment.filter(
-          (item) => item.status === "maintenance",
+          (item) =>
+            item.status === "maintenance" ||
+            item.needsMaintenanceSoon === true ||
+            item.maintenanceState?.overdue === true ||
+            item.maintenanceState?.dueSoon === true,
         ).length,
       });
 
@@ -441,12 +469,15 @@ export const Reports: React.FC = () => {
   ];
 
   const packageData = useMemo(() => {
-    const colors: Record<string, string> = {
-      "Gói 3 tháng": "#3b82f6",
-      "Gói 6 tháng": "#10b981",
-      "Gói 12 tháng": "#8b5cf6",
-      "Gói PT": "#f59e0b",
-    };
+    const colors = [
+      "#3b82f6",
+      "#10b981",
+      "#8b5cf6",
+      "#f59e0b",
+      "#ef4444",
+      "#06b6d4",
+      "#84cc16",
+    ];
     const counts = memberPackages.reduce<Record<string, number>>(
       (result, memberPackage) => {
         const name = getPackageName(memberPackage);
@@ -456,10 +487,10 @@ export const Reports: React.FC = () => {
       {},
     );
 
-    return Object.entries(colors).map(([name, color]) => ({
+    return Object.entries(counts).map(([name, value], index) => ({
       name,
-      value: counts[name] ?? 0,
-      color,
+      value,
+      color: colors[index % colors.length] ?? "#3b82f6",
     }));
   }, [memberPackages]);
 
@@ -643,7 +674,11 @@ export const Reports: React.FC = () => {
                       ? (revenueData[index - 1]?.revenue ?? data.revenue)
                       : data.revenue;
                   const growth =
-                    ((data.revenue - prevRevenue) / prevRevenue) * 100;
+                    prevRevenue === 0
+                      ? data.revenue > 0
+                        ? 100
+                        : 0
+                      : ((data.revenue - prevRevenue) / prevRevenue) * 100;
                   return (
                     <tr key={data.month} className="hover:bg-gray-50">
                       <td className="px-6 py-4 whitespace-nowrap font-medium text-gray-900">
