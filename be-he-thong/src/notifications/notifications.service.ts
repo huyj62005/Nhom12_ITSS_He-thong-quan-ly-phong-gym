@@ -17,7 +17,7 @@ export class NotificationsService {
     const notification = this.notificationRepository.create({
       title: dto.title,
       content: dto.content,
-      isRead: dto.isRead ?? false,
+      isRead: dto.isread ?? false,
       user: {
         id: dto.userId,
       } as any,
@@ -64,7 +64,7 @@ export class NotificationsService {
     Object.assign(notification, {
       title: dto.title,
       content: dto.content,
-      isRead: dto.isRead,
+      isRead: dto.isread,
     });
 
     return this.notificationRepository.save(notification);

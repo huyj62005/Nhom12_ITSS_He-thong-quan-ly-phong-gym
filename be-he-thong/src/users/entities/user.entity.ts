@@ -14,6 +14,7 @@ export enum UserRole {
   MANAGER = 'manager',
   TRAINER = 'trainer',
   MEMBER = 'member',
+  CASHIER = 'cashier',
 }
 
 export enum UserStatus {

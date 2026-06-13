@@ -6,6 +6,7 @@ import { UsersService } from './users.service';
 import { User } from './entities/user.entity';
 import { Member } from '../members/entities/member.entity';
 import { TrainerProfile } from '../trainer-profiles/entities/trainer-profile.entity';
+import { Notification } from '../notifications/entities/notification.entity';
 
 @Module({
   imports: [
