@@ -129,7 +129,14 @@ export class MembersService {
 
   async remove(id: number) {
     const member = await this.findMemberOrFail(id);
+
+    const userId = member.user?.id;
+
     await this.membersRepository.remove(member);
+
+    if (userId) {
+      await this.usersRepository.delete(userId);
+    }
 
     return {
       id,
