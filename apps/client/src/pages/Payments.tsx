@@ -18,6 +18,7 @@ import { useAuth } from "../contexts/AuthContext";
 import {
   getPackageDisplayName,
   isValidDisplayPackage,
+  normalizePackageDisplayName,
 } from "../utils/packageNames";
 import { isMemberPackageStillValid } from "../utils/membership";
 
@@ -62,7 +63,7 @@ const getMethodText = (method: string) => {
 };
 
 const getPaymentPackageName = (packageName?: string) =>
-  packageName?.trim() || "Chưa có gói tập";
+  normalizePackageDisplayName(packageName) || "Chưa có gói tập";
 
 const formatPaymentDate = (date: string) =>
   date ? new Date(date).toLocaleDateString("vi-VN") : "-";

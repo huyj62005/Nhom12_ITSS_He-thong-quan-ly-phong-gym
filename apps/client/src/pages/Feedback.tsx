@@ -112,7 +112,8 @@ export const FeedbackPage: React.FC = () => {
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [showModal, setShowModal] = useState(false);
   const [replyFeedback, setReplyFeedback] = useState<Feedback | null>(null);
-  const [confirmReplyFeedback, setConfirmReplyFeedback] = useState<Feedback | null>(null);
+  const [confirmResolveFeedback, setConfirmResolveFeedback] =
+    useState<Feedback | null>(null);
   const [replyContent, setReplyContent] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
   const [newFeedback, setNewFeedback] = useState({
@@ -212,29 +213,22 @@ export const FeedbackPage: React.FC = () => {
 
   const closeReplyModal = () => {
     setReplyFeedback(null);
-    setConfirmReplyFeedback(null);
     setReplyContent('');
   };
 
-  const handleOpenConfirmReply = (e: React.FormEvent) => {
+  const handleSubmitReply = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!replyFeedback || !replyContent.trim()) return;
-    setConfirmReplyFeedback(replyFeedback);
-  };
-  const handleConfirmReply = async () => {
-    if (!confirmReplyFeedback || !replyContent.trim()) return;
 
     try {
       const apiFeedback = await requestJson<unknown>(
-        `/feedbacks/${confirmReplyFeedback.id}`,
+        `/feedbacks/${replyFeedback.id}`,
         {
           method: 'PATCH',
           body: JSON.stringify({
             adminReply: replyContent.trim(),
             response: replyContent.trim(),
-            status: 'resolved',
-            resolvedBy: user?.name || 'Manager',
-            resolvedAt: new Date().toISOString(),
+            status: 'in_progress',
           }),
         },
       );
@@ -242,23 +236,62 @@ export const FeedbackPage: React.FC = () => {
         typeof apiFeedback === 'object' && apiFeedback !== null
           ? mapApiFeedback(apiFeedback as ApiFeedback)
           : {
-              ...confirmReplyFeedback,
-              status: 'resolved' as const,
+              ...replyFeedback,
+              status: 'in-progress' as const,
               response: replyContent.trim(),
-              resolvedBy: user?.name || 'Manager',
-              resolvedAt: new Date().toISOString().slice(0, 10),
             };
 
       setFeedbacks((current) =>
         current.map((feedback) =>
-          feedback.id === confirmReplyFeedback.id ? updatedFeedback : feedback,
+          feedback.id === replyFeedback.id ? updatedFeedback : feedback,
         ),
       );
       closeReplyModal();
-      setSuccessMessage('Gui phan hoi thanh cong. Yeu cau da duoc danh dau da giai quyet.');
+      setSuccessMessage('Gửi phản hồi thành công. Yêu cầu đang được xử lý.');
       setTimeout(() => setSuccessMessage(''), 3000);
     } catch (error) {
       alert(error instanceof Error ? error.message : 'Khong the gui phan hoi!');
+    }
+  };
+
+  const handleConfirmResolve = async () => {
+    if (!confirmResolveFeedback) return;
+
+    try {
+      const resolvedAt = new Date().toISOString();
+      const apiFeedback = await requestJson<unknown>(
+        `/feedbacks/${confirmResolveFeedback.id}`,
+        {
+          method: 'PATCH',
+          body: JSON.stringify({
+            status: 'resolved',
+            resolvedAt,
+          }),
+        },
+      );
+      const updatedFeedback =
+        typeof apiFeedback === 'object' && apiFeedback !== null
+          ? mapApiFeedback(apiFeedback as ApiFeedback)
+          : {
+              ...confirmResolveFeedback,
+              status: 'resolved' as const,
+              resolvedAt,
+            };
+
+      setFeedbacks((current) =>
+        current.map((feedback) =>
+          feedback.id === confirmResolveFeedback.id ? updatedFeedback : feedback,
+        ),
+      );
+      setConfirmResolveFeedback(null);
+      setSuccessMessage('Yêu cầu đã được xác nhận là đã giải quyết.');
+      setTimeout(() => setSuccessMessage(''), 3000);
+    } catch (error) {
+      alert(
+        error instanceof Error
+          ? error.message
+          : 'Khong the xac nhan yeu cau da giai quyet!',
+      );
     }
   };
   const getStatusColor = (status: string) => {
@@ -459,11 +492,14 @@ export const FeedbackPage: React.FC = () => {
                       Phản hồi:
                     </p>
                     <p className="text-sm text-blue-800">{feedback.response}</p>
-                    <p className="text-xs text-blue-600 mt-2">
-                      Bởi {feedback.resolvedBy} -{' '}
-                      {feedback.resolvedAt &&
-                        new Date(feedback.resolvedAt).toLocaleDateString('vi-VN')}
-                    </p>
+                    {(feedback.resolvedBy || feedback.resolvedAt) && (
+                      <p className="text-xs text-blue-600 mt-2">
+                        {feedback.resolvedBy ? `Bởi ${feedback.resolvedBy}` : ''}
+                        {feedback.resolvedBy && feedback.resolvedAt ? ' - ' : ''}
+                        {feedback.resolvedAt &&
+                          new Date(feedback.resolvedAt).toLocaleDateString('vi-VN')}
+                      </p>
+                    )}
                   </div>
                 )}
 
@@ -471,7 +507,7 @@ export const FeedbackPage: React.FC = () => {
                   <span>
                     {new Date(feedback.createdAt).toLocaleDateString('vi-VN')}
                   </span>
-                  {user?.role !== 'member' && feedback.status !== 'resolved' && (
+                  {user?.role !== 'member' && feedback.status === 'pending' && (
                     <div className="flex gap-2">
                       <button
                         onClick={() => openReplyModal(feedback)}
@@ -481,6 +517,17 @@ export const FeedbackPage: React.FC = () => {
                       </button>
                     </div>
                   )}
+                  {user?.role !== 'member' &&
+                    feedback.status === 'in-progress' && (
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => setConfirmResolveFeedback(feedback)}
+                          className="px-3 py-1 bg-green-50 text-green-700 rounded hover:bg-green-100"
+                        >
+                          Xác nhận
+                        </button>
+                      </div>
+                    )}
                 </div>
               </div>
             ))}
@@ -594,7 +641,7 @@ export const FeedbackPage: React.FC = () => {
               </button>
             </div>
 
-            <form onSubmit={handleOpenConfirmReply} className="p-6 space-y-4">
+            <form onSubmit={handleSubmitReply} className="p-6 space-y-4">
               <div>
                 <p className="text-xs text-gray-500 mb-1">Tiêu đề phản hồi</p>
                 <p className="font-semibold text-gray-900">{replyFeedback.subject}</p>
@@ -643,28 +690,28 @@ export const FeedbackPage: React.FC = () => {
         </div>
       )}
 
-      {confirmReplyFeedback && (
+      {confirmResolveFeedback && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60] p-4">
           <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6">
             <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0">
-                <MessageSquare size={20} className="text-blue-600" />
+              <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center flex-shrink-0">
+                <CheckCircle2 size={20} className="text-green-600" />
               </div>
-              <h3 className="font-bold text-gray-900">Xác nhận gửi phản hồi</h3>
+              <h3 className="font-bold text-gray-900">Xác nhận đã giải quyết</h3>
             </div>
             <p className="text-sm text-gray-600 mb-5">
-              Bạn có chắc chắn muốn gửi phản hồi và đánh dấu yêu cầu này là đã giải quyết không?
+              Bạn có chắc chắn muốn xác nhận yêu cầu này đã được giải quyết không?
             </p>
             <div className="flex gap-3">
               <button
-                onClick={() => setConfirmReplyFeedback(null)}
+                onClick={() => setConfirmResolveFeedback(null)}
                 className="flex-1 py-2.5 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors font-medium text-sm"
               >
                 Hủy
               </button>
               <button
-                onClick={handleConfirmReply}
-                className="flex-1 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium text-sm"
+                onClick={handleConfirmResolve}
+                className="flex-1 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium text-sm"
               >
                 Có
               </button>

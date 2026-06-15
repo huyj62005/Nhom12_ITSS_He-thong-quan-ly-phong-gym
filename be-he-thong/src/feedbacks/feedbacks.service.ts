@@ -75,6 +75,8 @@ export class FeedbacksService {
     const resolvedAt = payload.resolvedAt ?? payload.resolved_at;
     if (resolvedAt !== undefined) {
       feedback.resolvedAt = resolvedAt ? new Date(resolvedAt) : undefined;
+    } else if (payload.status === 'resolved' && !feedback.resolvedAt) {
+      feedback.resolvedAt = new Date();
     }
 
     return this.toFeedbackResponse(await this.feedbacksRepository.save(feedback));

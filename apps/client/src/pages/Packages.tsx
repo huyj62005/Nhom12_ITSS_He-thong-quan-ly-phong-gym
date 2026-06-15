@@ -13,17 +13,43 @@ import { isMemberPackageStillValid } from "../utils/membership";
 type PackageForm = {
   name: string;
   description: string;
+  featuresText: string;
   duration: string;
   price: string;
-  type: MembershipPackage["type"];
 };
 
 const emptyPackageForm: PackageForm = {
   name: "",
   description: "",
+  featuresText: "",
   duration: "",
   price: "",
-  type: "quarterly",
+};
+
+const parseFeaturesText = (featuresText: string) =>
+  featuresText
+    .split(/\r?\n/)
+    .map((feature) => feature.trim())
+    .filter(Boolean);
+
+const getPackageTypeFromForm = (
+  packageForm: PackageForm,
+  basePackage?: MembershipPackage,
+): MembershipPackage["type"] => {
+  const normalizedName = packageForm.name
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+  const duration = Number(packageForm.duration);
+
+  if (/\bpt\b/.test(normalizedName)) return "pt";
+  if (/\bvip\b/.test(normalizedName)) return "vip";
+  if (/12\s*thang/.test(normalizedName) || duration >= 365) return "yearly";
+  if (/6\s*thang/.test(normalizedName) || duration >= 180) return "yearly";
+  if (/3\s*thang/.test(normalizedName) || duration >= 90) return "quarterly";
+  if (/1\s*thang/.test(normalizedName) || duration >= 28) return "monthly";
+
+  return basePackage?.type ?? "monthly";
 };
 
 const getGenderText = (gender: string) => {
@@ -136,9 +162,9 @@ export const Packages: React.FC = () => {
     setPackageForm({
       name: pkg.name,
       description: pkg.description,
+      featuresText: pkg.features.join("\n"),
       duration: String(pkg.duration),
       price: String(pkg.price),
-      type: pkg.type,
     });
     setShowModal(true);
   };
@@ -158,8 +184,8 @@ export const Packages: React.FC = () => {
     description: packageForm.description.trim(),
     duration: Number(packageForm.duration),
     price: Number(packageForm.price),
-    type: packageForm.type,
-    features: basePackage?.features ?? [],
+    type: getPackageTypeFromForm(packageForm, basePackage),
+    features: parseFeaturesText(packageForm.featuresText),
     isActive: basePackage?.isActive ?? true,
     createdAt: basePackage?.createdAt ?? new Date().toISOString().slice(0, 10),
   });
@@ -618,30 +644,29 @@ export const Packages: React.FC = () => {
                 />
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div>
-                  <label
-                    htmlFor="package-type"
-                    className="block text-sm font-medium text-gray-700 mb-1"
-                  >
-                    Loại gói
-                  </label>
-                  <select
-                    id="package-type"
-                    value={packageForm.type}
-                    onChange={(event) =>
-                      setPackageForm((prev) => ({
-                        ...prev,
-                        type: event.target.value as MembershipPackage["type"],
-                      }))
-                    }
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="quarterly">Gói 3 tháng</option>
-                    <option value="yearly">Gói 6 tháng / 12 tháng</option>
-                    <option value="pt">PT</option>
-                  </select>
-                </div>
+              <div>
+                <label
+                  htmlFor="package-features"
+                  className="block text-sm font-medium text-gray-700 mb-1"
+                >
+                  Quyền lợi gói tập
+                </label>
+                <textarea
+                  id="package-features"
+                  value={packageForm.featuresText}
+                  onChange={(event) =>
+                    setPackageForm((prev) => ({
+                      ...prev,
+                      featuresText: event.target.value,
+                    }))
+                  }
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  rows={4}
+                  placeholder={"Tập luyện không giới hạn\nSử dụng khu vực cardio\nSử dụng khu vực tạ tự do"}
+                />
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label
                     htmlFor="package-duration"

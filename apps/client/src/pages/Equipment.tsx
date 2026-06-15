@@ -20,6 +20,8 @@ type EquipmentForm = {
   status: Equipment["status"];
 };
 
+type EquipmentStatusFilter = "all" | Equipment["status"] | "maintenance_due";
+
 type ApiEquipment = {
   id: number | string;
   name?: string;
@@ -58,6 +60,8 @@ export const EquipmentPage: React.FC = () => {
   const [equipmentForm, setEquipmentForm] =
     useState<EquipmentForm>(emptyEquipmentForm);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [statusFilter, setStatusFilter] =
+    useState<EquipmentStatusFilter>("all");
 
   const requestJson = async <T,>(
     path: string,
@@ -348,6 +352,11 @@ export const EquipmentPage: React.FC = () => {
     (e) => e.status === "maintenance" || isMaintenanceDueSoon(e),
   ).length;
   const brokenCount = equipment.filter((e) => e.status === "broken").length;
+  const filteredEquipment = equipment.filter((item) => {
+    if (statusFilter === "all") return true;
+    if (statusFilter === "maintenance_due") return isMaintenanceDueSoon(item);
+    return item.status === statusFilter;
+  });
 
   return (
     <DashboardLayout>
@@ -399,6 +408,44 @@ export const EquipmentPage: React.FC = () => {
             <h3 className="text-lg font-bold text-gray-900">
               Danh Sách Thiết Bị
             </h3>
+            <div className="mt-4 flex flex-wrap gap-2">
+              {[
+                { value: "all", label: "Tất cả", count: equipment.length },
+                {
+                  value: "available",
+                  label: "Sẵn sàng",
+                  count: availableCount,
+                },
+                {
+                  value: "maintenance",
+                  label: "Bảo trì",
+                  count: equipment.filter(
+                    (item) => item.status === "maintenance",
+                  ).length,
+                },
+                {
+                  value: "maintenance_due",
+                  label: "Cần bảo trì",
+                  count: equipment.filter(isMaintenanceDueSoon).length,
+                },
+                { value: "broken", label: "Hỏng", count: brokenCount },
+              ].map((filter) => (
+                <button
+                  key={filter.value}
+                  type="button"
+                  onClick={() =>
+                    setStatusFilter(filter.value as EquipmentStatusFilter)
+                  }
+                  className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                    statusFilter === filter.value
+                      ? "bg-blue-600 text-white"
+                      : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                  }`}
+                >
+                  {filter.label} ({filter.count})
+                </button>
+              ))}
+            </div>
           </div>
 
           <div className="overflow-x-auto">
@@ -432,7 +479,7 @@ export const EquipmentPage: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {equipment.map((item) => (
+                {filteredEquipment.map((item) => (
                   <tr key={item.id} className="hover:bg-gray-50">
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex items-center gap-3">
@@ -497,6 +544,16 @@ export const EquipmentPage: React.FC = () => {
                     </td>
                   </tr>
                 ))}
+                {filteredEquipment.length === 0 && (
+                  <tr>
+                    <td
+                      colSpan={8}
+                      className="px-6 py-8 text-center text-sm text-gray-500"
+                    >
+                      Không có thiết bị phù hợp với trạng thái đã chọn.
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>

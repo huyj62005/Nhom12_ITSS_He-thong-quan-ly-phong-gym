@@ -1,5 +1,6 @@
 ﻿import React, { useEffect, useMemo, useState } from "react";
 import { DashboardLayout } from "../components/DashboardLayout";
+import { normalizePackageDisplayName } from "../utils/packageNames";
 import {
   BarChart,
   Bar,
@@ -33,6 +34,16 @@ type ReportMember = {
   membershipStatus?: string;
 };
 
+type ReportGymPackage = {
+  id?: number | string;
+  name?: string;
+  duration?: number | string;
+  durationDays?: number | string;
+  type?: string;
+  status?: string;
+  isActive?: boolean;
+};
+
 type ReportPayment = {
   amount?: number | string;
   status?: string;
@@ -58,15 +69,17 @@ type ReportEquipment = {
 };
 
 type ReportMemberPackage = {
+  memberId?: number | string;
+  member_id?: number | string;
   packageId?: number | string;
+  package_id?: number | string;
   packageNameSnapshot?: string;
   package_name_snapshot?: string;
-  package?: {
-    name?: string;
-    duration?: number | string;
-    durationDays?: number | string;
-    type?: string;
-  };
+  package?: ReportGymPackage;
+  currentPackage?: ReportGymPackage | null;
+  endDate?: string;
+  end_date?: string;
+  status?: string;
 };
 
 type ReportStats = {
@@ -124,13 +137,61 @@ const getPaymentDate = (payment: ReportPayment) =>
 const isPaidPayment = (payment: ReportPayment) =>
   payment.status === "paid" || payment.status === "completed";
 
-const getPackageName = (memberPackage: ReportMemberPackage) => {
-  const pkg = memberPackage.package;
-  const name =
+const toLocalDateStart = (value?: string) => {
+  if (!value) return null;
+  const dateOnlyMatch = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
+  const date = dateOnlyMatch
+    ? new Date(
+        Number(dateOnlyMatch[1]),
+        Number(dateOnlyMatch[2]) - 1,
+        Number(dateOnlyMatch[3]),
+      )
+    : new Date(value);
+
+  if (Number.isNaN(date.getTime())) return null;
+
+  date.setHours(0, 0, 0, 0);
+  return date;
+};
+
+const isActivePackage = (memberPackage: ReportMemberPackage) => {
+  if (memberPackage.status !== "active") return false;
+
+  const endDate = toLocalDateStart(
+    memberPackage.endDate ?? memberPackage.end_date,
+  );
+  if (!endDate) return true;
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return endDate >= today;
+};
+
+const getMemberPackageId = (memberPackage: ReportMemberPackage) =>
+  String(
+    memberPackage.packageId ??
+      memberPackage.package_id ??
+      memberPackage.currentPackage?.id ??
+      memberPackage.package?.id ??
+      "",
+  );
+
+const getPackageName = (
+  memberPackage: ReportMemberPackage,
+  packagesById: Map<string, ReportGymPackage>,
+) => {
+  const packageId = getMemberPackageId(memberPackage);
+  const pkg =
+    (packageId ? packagesById.get(packageId) : undefined) ??
+    memberPackage.currentPackage ??
+    memberPackage.package;
+  const name = normalizePackageDisplayName(
     pkg?.name ??
-    memberPackage.packageNameSnapshot ??
-    memberPackage.package_name_snapshot ??
-    "";
+      memberPackage.packageNameSnapshot ??
+      memberPackage.package_name_snapshot ??
+      "",
+    pkg?.type,
+  );
   const duration = Number(pkg?.duration ?? pkg?.durationDays ?? 0);
 
   if (name.trim()) return name.trim();
@@ -328,6 +389,7 @@ export const Reports: React.FC = () => {
   const [stats, setStats] = useState<ReportStats>(emptyStats);
   const [revenueData, setRevenueData] = useState<RevenueRow[]>([]);
   const [memberPackages, setMemberPackages] = useState<ReportMemberPackage[]>([]);
+  const [gymPackages, setGymPackages] = useState<ReportGymPackage[]>([]);
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat("vi-VN", {
@@ -340,13 +402,21 @@ export const Reports: React.FC = () => {
     let isMounted = true;
 
     const fetchReportData = async () => {
-      const [paymentsResult, membersResult, schedulesResult, equipmentResult, memberPackagesResult] =
+      const [
+        paymentsResult,
+        membersResult,
+        schedulesResult,
+        equipmentResult,
+        memberPackagesResult,
+        gymPackagesResult,
+      ] =
         await Promise.allSettled([
           requestJson<unknown>("/payments"),
           requestJson<unknown>("/members"),
           requestJson<unknown>("/training-schedules"),
           requestJson<unknown>("/equipments"),
           requestJson<unknown>("/member-packages"),
+          requestJson<unknown>("/gym-packages"),
         ]);
 
       if (!isMounted) return;
@@ -371,10 +441,22 @@ export const Reports: React.FC = () => {
         memberPackagesResult.status === "fulfilled"
           ? toArray<ReportMemberPackage>(memberPackagesResult.value)
           : [];
+      const gymPackageRows =
+        gymPackagesResult.status === "fulfilled"
+          ? toArray<ReportGymPackage>(gymPackagesResult.value)
+          : [];
 
       const today = new Date().toISOString().slice(0, 10);
       const currentMonth = today.slice(0, 7);
       const paidPayments = payments.filter(isPaidPayment);
+      const activeMemberIds = new Set(
+        packageRows
+          .filter(isActivePackage)
+          .map((memberPackage) =>
+            String(memberPackage.memberId ?? memberPackage.member_id ?? ""),
+          )
+          .filter(Boolean),
+      );
 
       setStats({
         totalRevenue: paidPayments.reduce(
@@ -382,10 +464,8 @@ export const Reports: React.FC = () => {
           0,
         ),
         totalMembers: members.length,
-        activeMembers: members.filter(
-          (member) =>
-            member.status === "active" ||
-            member.membershipStatus === "active",
+        activeMembers: members.filter((member) =>
+          activeMemberIds.has(String(member.id ?? "")),
         ).length,
         newMembersThisMonth: members.filter((member) =>
           getDateString(member.joinDate ?? member.join_date).startsWith(
@@ -427,6 +507,7 @@ export const Reports: React.FC = () => {
         }),
       );
       setMemberPackages(packageRows);
+      setGymPackages(gymPackageRows);
     };
 
     fetchReportData().catch((error) => {
@@ -435,6 +516,7 @@ export const Reports: React.FC = () => {
         setStats(emptyStats);
         setRevenueData([]);
         setMemberPackages([]);
+        setGymPackages([]);
       }
     });
 
@@ -478,9 +560,16 @@ export const Reports: React.FC = () => {
       "#06b6d4",
       "#84cc16",
     ];
-    const counts = memberPackages.reduce<Record<string, number>>(
+    const packagesById = new Map(
+      gymPackages
+        .filter((pkg) => pkg.id !== undefined)
+        .map((pkg) => [String(pkg.id), pkg]),
+    );
+    const counts = memberPackages
+      .filter(isActivePackage)
+      .reduce<Record<string, number>>(
       (result, memberPackage) => {
-        const name = getPackageName(memberPackage);
+        const name = getPackageName(memberPackage, packagesById);
         result[name] = (result[name] ?? 0) + 1;
         return result;
       },
@@ -492,7 +581,7 @@ export const Reports: React.FC = () => {
       value,
       color: colors[index % colors.length] ?? "#3b82f6",
     }));
-  }, [memberPackages]);
+  }, [memberPackages, gymPackages]);
 
   return (
     <DashboardLayout>
