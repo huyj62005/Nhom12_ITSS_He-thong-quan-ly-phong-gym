@@ -30,6 +30,25 @@ export class Notification {
     content?: string;
 
     @Column({
+        nullable: true,
+        length: 100,
+    })
+    type?: string;
+
+    @Column({
+        name: 'target_route',
+        nullable: true,
+        length: 200,
+    })
+    targetRoute?: string;
+
+    @Column({
+        name: 'related_entity_id',
+        nullable: true,
+    })
+    relatedEntityId?: string;
+
+    @Column({
         name: 'is_read',
         default: false,
     })

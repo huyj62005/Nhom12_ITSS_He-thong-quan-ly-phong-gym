@@ -145,7 +145,7 @@ export interface Feedback {
   subject: string;
   message: string;
   status: "pending" | "in-progress" | "resolved";
-  priority: "low" | "medium" | "high";
+  category: "service" | "equipment" | "support" | "other";
   createdAt: string;
   resolvedBy?: string;
   resolvedAt?: string;

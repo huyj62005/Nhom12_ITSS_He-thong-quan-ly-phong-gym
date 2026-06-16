@@ -6,9 +6,13 @@ import { MemberPackage } from './entities/member-package.entity';
 import { Member } from '../members/entities/member.entity';
 import { GymPackage } from '../gym-packages/entities/gym-package.entity';
 import { User } from '../users/entities/user.entity';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([MemberPackage, Member, GymPackage, User])],
+  imports: [
+    TypeOrmModule.forFeature([MemberPackage, Member, GymPackage, User]),
+    NotificationsModule,
+  ],
   controllers: [MemberPackagesController],
   providers: [MemberPackagesService],
 })

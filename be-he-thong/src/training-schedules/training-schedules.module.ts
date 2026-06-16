@@ -6,9 +6,13 @@ import { TrainingSchedule } from './entities/training-schedule.entity';
 import { Member } from '../members/entities/member.entity';
 import { MemberPackage } from '../member-packages/entities/member-package.entity';
 import { User } from '../users/entities/user.entity';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([TrainingSchedule, Member, MemberPackage, User])],
+  imports: [
+    TypeOrmModule.forFeature([TrainingSchedule, Member, MemberPackage, User]),
+    NotificationsModule,
+  ],
   controllers: [TrainingSchedulesController],
   providers: [TrainingSchedulesService],
 })

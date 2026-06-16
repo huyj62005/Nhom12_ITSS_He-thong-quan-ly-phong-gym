@@ -137,6 +137,8 @@ export const Payments: React.FC = () => {
   const [updatingPaymentId, setUpdatingPaymentId] = useState<string | null>(
     null,
   );
+  const [approvalPayment, setApprovalPayment] = useState<Payment | null>(null);
+  const [approvalTrainerId, setApprovalTrainerId] = useState("");
 
   // Payment form state
   const [memberSearch, setMemberSearch] = useState("");
@@ -324,11 +326,28 @@ export const Payments: React.FC = () => {
     }
   };
 
-  const handleApprovePayment = async (paymentId: string) => {
+  const isPtPayment = (payment: Payment) => {
+    const paymentPackage = packages.find((pkg) => pkg.id === payment.packageId);
+    const packageName = getPaymentPackageName(payment.packageName)
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase();
+
+    return paymentPackage?.type === "pt" || /\bpt\b/.test(packageName);
+  };
+
+  const handleApprovePayment = async (payment: Payment) => {
+    if (isPtPayment(payment) && !payment.memberPackageTrainerId) {
+      setApprovalPayment(payment);
+      setApprovalTrainerId("");
+      return;
+    }
+
+    const paymentId = payment.id;
     setUpdatingPaymentId(paymentId);
 
     try {
-      await confirmPayment(paymentId);
+      await confirmPayment(paymentId, payment.memberPackageTrainerId);
       setViewPayment((prev) =>
         prev?.id === paymentId ? { ...prev, status: "completed" } : prev,
       );
@@ -344,6 +363,27 @@ export const Payments: React.FC = () => {
     } finally {
       setUpdatingPaymentId(null);
     }
+  };
+
+  const handleConfirmPtApproval = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!approvalPayment) return;
+    if (!approvalTrainerId) {
+      showToast("Vui lòng chọn PT phụ trách trước khi duyệt Gói PT.", "error");
+      return;
+    }
+
+    const paymentWithTrainer: Payment = {
+      ...approvalPayment,
+      memberPackageTrainerId: approvalTrainerId,
+      memberPackageTrainerName:
+        trainers.find((trainer) => trainer.id === approvalTrainerId)?.name ??
+        approvalPayment.memberPackageTrainerName,
+    };
+
+    await handleApprovePayment(paymentWithTrainer);
+    setApprovalPayment(null);
+    setApprovalTrainerId("");
   };
 
   const handleRejectPayment = async (paymentId: string) => {
@@ -541,7 +581,7 @@ export const Payments: React.FC = () => {
                                 <button
                                   type="button"
                                   onClick={() =>
-                                    handleApprovePayment(payment.id)
+                                    handleApprovePayment(payment)
                                   }
                                   disabled={updatingPaymentId === payment.id}
                                   className="p-1.5 text-green-600 hover:bg-green-50 rounded-lg transition-colors disabled:opacity-40"
@@ -594,7 +634,7 @@ export const Payments: React.FC = () => {
       {/* Create Payment Modal */}
       {showModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+          <div className="bg-white rounded-xl shadow-2xl w-[92vw] max-w-6xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between p-6 border-b border-gray-200">
               <div>
                 <h2 className="text-xl font-bold text-gray-900">
@@ -636,7 +676,7 @@ export const Payments: React.FC = () => {
                     }}
                     onFocus={() => setShowMemberDropdown(true)}
                     placeholder="Nhập tên, email hoặc số điện thoại..."
-                    className="w-full pl-9 pr-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                    className="w-full pl-10 pr-10 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
                   />
                   <ChevronDown
                     className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400"
@@ -644,7 +684,7 @@ export const Payments: React.FC = () => {
                   />
 
                   {showMemberDropdown && (
-                    <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-10 max-h-52 overflow-y-auto">
+                    <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-10 max-h-72 overflow-y-auto">
                       {filteredMembers.length === 0 ? (
                         <p className="px-4 py-3 text-sm text-gray-400">
                           Không tìm thấy hội viên
@@ -655,7 +695,7 @@ export const Payments: React.FC = () => {
                             key={m.id}
                             type="button"
                             onClick={() => selectMember(m)}
-                            className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-blue-50 transition-colors text-left"
+                            className="w-full flex items-center gap-3 px-4 py-3 hover:bg-blue-50 transition-colors text-left"
                           >
                             <img
                               src={
@@ -1057,6 +1097,79 @@ export const Payments: React.FC = () => {
         </div>
       )}
 
+      {approvalPayment && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full">
+            <div className="flex items-center justify-between p-6 border-b border-gray-200">
+              <h2 className="text-xl font-bold text-gray-900">
+                Chọn PT phụ trách
+              </h2>
+              <button
+                type="button"
+                onClick={() => {
+                  setApprovalPayment(null);
+                  setApprovalTrainerId("");
+                }}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X size={22} />
+              </button>
+            </div>
+            <form className="p-6 space-y-4" onSubmit={handleConfirmPtApproval}>
+              <div className="rounded-lg bg-blue-50 border border-blue-100 p-3">
+                <p className="text-sm font-semibold text-blue-900">
+                  {approvalPayment.memberName}
+                </p>
+                <p className="text-sm text-blue-800 mt-1">
+                  {getPaymentPackageName(approvalPayment.packageName)}
+                </p>
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  PT/HLV phụ trách <span className="text-red-500">*</span>
+                </label>
+                <select
+                  value={approvalTrainerId}
+                  onChange={(event) => setApprovalTrainerId(event.target.value)}
+                  className={inputCls}
+                  required
+                >
+                  <option value="">Chọn PT cho hội viên</option>
+                  {trainers.map((trainer) => (
+                    <option key={trainer.id} value={trainer.id}>
+                      {trainer.name}
+                      {trainer.email ? ` - ${trainer.email}` : ""}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="grid grid-cols-2 gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setApprovalPayment(null);
+                    setApprovalTrainerId("");
+                  }}
+                  className="py-2.5 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors font-medium text-sm"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="submit"
+                  disabled={
+                    !approvalTrainerId ||
+                    updatingPaymentId === approvalPayment.id
+                  }
+                  className="py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-40 transition-colors font-medium text-sm"
+                >
+                  Xác nhận
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* View Payment Modal */}
       {viewPayment && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
@@ -1118,7 +1231,7 @@ export const Payments: React.FC = () => {
                 <div className="grid grid-cols-2 gap-3">
                   <button
                     type="button"
-                    onClick={() => handleApprovePayment(viewPayment.id)}
+                    onClick={() => handleApprovePayment(viewPayment)}
                     disabled={updatingPaymentId === viewPayment.id}
                     className="py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-40 transition-colors font-medium text-sm"
                   >

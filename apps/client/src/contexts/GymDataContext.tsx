@@ -19,7 +19,7 @@ interface GymDataContextType {
   updateMember: (id: string, updates: Partial<Member>) => Promise<Member>;
   deleteMember: (id: string) => Promise<void>;
   addPayment: (payment: Payment, trainerId?: string) => Promise<Payment>;
-  confirmPayment: (paymentId: string) => Promise<void>;
+  confirmPayment: (paymentId: string, trainerId?: string) => Promise<void>;
   cancelPayment: (paymentId: string) => Promise<void>;
 }
 
@@ -822,10 +822,13 @@ export const GymDataProvider: React.FC<{ children: React.ReactNode }> = ({
   };
 
   // When a payment is confirmed (completed), update the member's package
-  const confirmPayment = async (paymentId: string) => {
+  const confirmPayment = async (paymentId: string, trainerId?: string) => {
     const apiPayment = await requestJson<unknown>(`/payments/${paymentId}`, {
       method: "PATCH",
-      body: JSON.stringify({ status: "paid" }),
+      body: JSON.stringify({
+        status: "paid",
+        ...(trainerId ? { trainerId: Number(trainerId) } : {}),
+      }),
     });
     const savedPayment = mapApiPayment(
       assertObjectResponse<ApiPayment>(apiPayment, `/payments/${paymentId}`),

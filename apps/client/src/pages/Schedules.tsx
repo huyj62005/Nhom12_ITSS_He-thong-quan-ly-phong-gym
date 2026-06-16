@@ -69,6 +69,24 @@ const toDateInputValue = (date: Date) => {
   return `${year}-${month}-${day}`;
 };
 
+const toDateTimeInputValue = (date: Date) => {
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+
+  return `${toDateInputValue(date)}T${hours}:${minutes}:00`;
+};
+
+const addMinutesToDateTimeInput = (
+  dateValue: string,
+  timeValue: string,
+  minutes: number,
+) => {
+  const date = new Date(`${dateValue}T${timeValue}:00`);
+  date.setMinutes(date.getMinutes() + minutes);
+
+  return toDateTimeInputValue(date);
+};
+
 const emptyScheduleForm = (): ScheduleForm => ({
   memberId: "",
   trainerId: "",
@@ -222,7 +240,6 @@ export const Schedules: React.FC = () => {
     : undefined;
   const currentTrainerIds = [
     user?.id,
-    currentTrainer?.id !== undefined ? String(currentTrainer.id) : "",
     getTrainerUserId(currentTrainer),
   ].filter(Boolean);
   const currentMemberIds = [
@@ -322,17 +339,28 @@ export const Schedules: React.FC = () => {
 
   const handleCreateSchedule = async (event: React.FormEvent) => {
     event.preventDefault();
+    const scheduleType: Schedule["type"] = isMember ? "pt" : scheduleForm.type;
     const trainerId =
-      isMember && scheduleForm.type === "pt"
+      isMember && scheduleType === "pt"
         ? currentMember?.trainerId
         : scheduleForm.trainerId;
 
-    if (isMember && scheduleForm.type === "pt" && !memberHasAssignedPt) {
+    if (isMember && !currentMember) {
+      window.alert("Khong tim thay thong tin hoi vien cua tai khoan hien tai.");
+      return;
+    }
+
+    if (isMember && scheduleType === "pt" && !memberHasAssignedPt) {
       window.alert(
         "Bạn chưa được phân công PT. Vui lòng đăng ký gói PT hoặc liên hệ quản lý.",
       );
       return;
     }
+
+    const startTime = `${scheduleForm.date}T${scheduleForm.startTime}:00`;
+    const endTime = isMember
+      ? addMinutesToDateTimeInput(scheduleForm.date, scheduleForm.startTime, 60)
+      : `${scheduleForm.date}T${scheduleForm.endTime}:00`;
 
     try {
       const apiSchedule = await requestJson<unknown>("/training-schedules", {
@@ -340,12 +368,12 @@ export const Schedules: React.FC = () => {
         body: JSON.stringify({
           memberId: Number(isMember ? currentMember?.id : scheduleForm.memberId),
           trainerId:
-            scheduleForm.type === "pt" && trainerId
+            scheduleType === "pt" && trainerId
               ? Number(trainerId)
               : undefined,
-          type: scheduleForm.type,
-          startTime: `${scheduleForm.date}T${scheduleForm.startTime}:00`,
-          endTime: `${scheduleForm.date}T${scheduleForm.endTime}:00`,
+          type: scheduleType,
+          startTime,
+          endTime,
           notes: scheduleForm.notes,
           status: "scheduled",
         }),
@@ -529,6 +557,7 @@ export const Schedules: React.FC = () => {
             </div>
 
             <form onSubmit={handleCreateSchedule} className="space-y-4">
+              {!isMember && (
               <FormField label="Chọn hội viên">
                 <select
                   required
@@ -548,7 +577,9 @@ export const Schedules: React.FC = () => {
                   ))}
                 </select>
               </FormField>
+              )}
 
+              {!isMember && (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <FormField label="Loại lịch tập">
                   <select
@@ -598,8 +629,13 @@ export const Schedules: React.FC = () => {
                   </FormField>
                 )}
               </div>
+              )}
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div
+                className={`grid grid-cols-1 gap-4 ${
+                  isMember ? "md:grid-cols-2" : "md:grid-cols-3"
+                }`}
+              >
                 <FormField label="Ngày tập">
                   <input
                     required
@@ -628,6 +664,7 @@ export const Schedules: React.FC = () => {
                     className={inputClass}
                   />
                 </FormField>
+                {!isMember && (
                 <FormField label="Giờ kết thúc">
                   <input
                     required
@@ -642,6 +679,7 @@ export const Schedules: React.FC = () => {
                     className={inputClass}
                   />
                 </FormField>
+                )}
               </div>
 
               <FormField label="Ghi chú">
@@ -658,7 +696,7 @@ export const Schedules: React.FC = () => {
                 />
               </FormField>
 
-              {isMember && scheduleForm.type === "pt" && !memberHasAssignedPt && (
+              {isMember && !memberHasAssignedPt && (
                 <p className="text-sm text-gray-500">
                   Bạn chưa được phân công PT. Vui lòng đăng ký gói PT hoặc liên hệ quản lý.
                 </p>
@@ -667,7 +705,7 @@ export const Schedules: React.FC = () => {
               <div className="flex gap-3 pt-4">
                 <button
                   type="submit"
-                  disabled={isMember && scheduleForm.type === "pt" && !memberHasAssignedPt}
+                  disabled={isMember && !memberHasAssignedPt}
                   className="flex-1 bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 transition-colors"
                 >
                   Đặt lịch

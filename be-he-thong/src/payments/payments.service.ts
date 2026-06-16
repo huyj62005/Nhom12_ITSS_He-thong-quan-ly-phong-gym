@@ -10,9 +10,13 @@ import { UpdatePaymentDto } from './dto/update-payment.dto';
 import { Payment } from './entities/payment.entity';
 import { Member } from '../members/entities/member.entity';
 import { MemberPackage } from '../member-packages/entities/member-package.entity';
+import { NotificationsService } from '../notifications/notifications.service';
+import { User, UserRole } from '../users/entities/user.entity';
 
 type PaymentPayload = Partial<CreatePaymentDto> & {
   status?: string;
+  trainerId?: number;
+  trainer_id?: number;
 };
 
 @Injectable()
@@ -24,6 +28,9 @@ export class PaymentsService {
     private readonly membersRepository: Repository<Member>,
     @InjectRepository(MemberPackage)
     private readonly memberPackagesRepository: Repository<MemberPackage>,
+    @InjectRepository(User)
+    private readonly usersRepository: Repository<User>,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   async create(createPaymentDto: CreatePaymentDto) {
@@ -48,7 +55,10 @@ export class PaymentsService {
       await this.cancelMemberPackage(memberPackage);
     }
 
-    return this.toPaymentResponse(await this.paymentsRepository.save(payment));
+    const savedPayment = await this.paymentsRepository.save(payment);
+    await this.notifyPaymentCreated(savedPayment);
+
+    return this.toPaymentResponse(savedPayment);
   }
 
   async findAll() {
@@ -59,6 +69,7 @@ export class PaymentsService {
         },
         memberPackage: {
           package: true,
+          trainer: true,
         },
       },
       order: {
@@ -76,6 +87,7 @@ export class PaymentsService {
   async update(id: number, updatePaymentDto: UpdatePaymentDto) {
     const payload = updatePaymentDto as PaymentPayload;
     const payment = await this.findPaymentOrFail(id);
+    const previousStatus = payment.status;
 
     if (payload.memberId !== undefined) {
       payment.member = await this.findMemberOrFail(payload.memberId);
@@ -83,6 +95,15 @@ export class PaymentsService {
     if (payload.memberPackageId !== undefined) {
       payment.memberPackage = payload.memberPackageId
         ? await this.findMemberPackageOrFail(payload.memberPackageId)
+        : undefined;
+    }
+    const trainerId = payload.trainerId ?? payload.trainer_id;
+    if (trainerId !== undefined) {
+      if (!payment.memberPackage) {
+        throw new BadRequestException('Member package is required for trainer assignment');
+      }
+      payment.memberPackage.trainer = trainerId
+        ? await this.findUserOrFail(trainerId)
         : undefined;
     }
     if (payload.amount !== undefined) payment.amount = Number(payload.amount);
@@ -99,7 +120,15 @@ export class PaymentsService {
       }
     }
 
-    return this.toPaymentResponse(await this.paymentsRepository.save(payment));
+    const savedPayment = await this.paymentsRepository.save(payment);
+    if (previousStatus !== savedPayment.status) {
+      await this.notifyPaymentStatusChanged(savedPayment);
+    }
+    if (savedPayment.status === 'paid') {
+      await this.notifyTrainerAssigned(savedPayment.memberPackage);
+    }
+
+    return this.toPaymentResponse(savedPayment);
   }
 
   async remove(id: number) {
@@ -128,6 +157,7 @@ export class PaymentsService {
         memberPackage: {
           member: true,
           package: true,
+          trainer: true,
         },
       },
     });
@@ -168,6 +198,7 @@ export class PaymentsService {
       relations: {
         member: true,
         package: true,
+        trainer: true,
       },
     });
 
@@ -288,5 +319,75 @@ export class PaymentsService {
       paidAt: this.toDateString(payment.paidAt),
       paymentDate: this.toDateString(payment.paidAt),
     };
+  }
+
+  private async findUserOrFail(id: number) {
+    if (!Number.isInteger(id) || id <= 0) {
+      throw new BadRequestException('Trainer id is invalid');
+    }
+
+    const user = await this.usersRepository.findOne({ where: { id } });
+
+    if (!user) {
+      throw new NotFoundException('Trainer not found');
+    }
+
+    return user;
+  }
+
+  private getPackageName(memberPackage?: MemberPackage) {
+    return (
+      memberPackage?.package?.name ??
+      memberPackage?.packageNameSnapshot ??
+      'gói tập'
+    );
+  }
+
+  private async notifyPaymentCreated(payment: Payment) {
+    const memberName = payment.member?.fullName ?? 'Hội viên';
+    const packageName = this.getPackageName(payment.memberPackage);
+
+    await this.notificationsService.createForRoles(
+      [UserRole.ADMIN, UserRole.MANAGER, UserRole.CASHIER],
+      {
+        title: 'Đăng ký gói tập mới',
+        message: `${memberName} vừa đăng ký ${packageName}.`,
+        type: 'payment_created',
+        targetRoute: '/payments',
+        relatedEntityId: String(payment.id),
+      },
+    );
+
+    if (payment.status === 'paid') {
+      await this.notifyPaymentStatusChanged(payment);
+    }
+  }
+
+  private async notifyPaymentStatusChanged(payment: Payment) {
+    if (payment.status !== 'paid') return;
+
+    await this.notificationsService.createForUser(payment.member?.user?.id, {
+      title: 'Gói tập đã được kích hoạt',
+      message: 'Gói tập của bạn đã được kích hoạt.',
+      type: 'package_activated',
+      targetRoute: '/packages',
+      relatedEntityId: String(payment.id),
+    });
+  }
+
+  private async notifyTrainerAssigned(memberPackage?: MemberPackage) {
+    const packageType =
+      memberPackage?.packageTypeSnapshot ?? memberPackage?.package?.type;
+    if (!memberPackage?.trainer?.id || packageType !== 'pt') {
+      return;
+    }
+
+    await this.notificationsService.createForUser(memberPackage.trainer.id, {
+      title: 'Hoi vien moi duoc phan cong',
+      message: `Ban vua duoc phan cong phu trach ${memberPackage.member?.fullName ?? 'mot hoi vien'}.`,
+      type: 'trainer_assigned',
+      targetRoute: '/progress',
+      relatedEntityId: String(memberPackage.member?.id ?? ''),
+    });
   }
 }

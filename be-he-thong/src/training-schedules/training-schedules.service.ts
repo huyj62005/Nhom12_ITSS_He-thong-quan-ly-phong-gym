@@ -7,6 +7,7 @@ import { TrainingSchedule } from './entities/training-schedule.entity';
 import { Member } from '../members/entities/member.entity';
 import { MemberPackage } from '../member-packages/entities/member-package.entity';
 import { User } from '../users/entities/user.entity';
+import { NotificationsService } from '../notifications/notifications.service';
 
 type SchedulePayload = Partial<CreateTrainingScheduleDto> & {
   status?: string;
@@ -24,26 +25,37 @@ export class TrainingSchedulesService {
     private readonly memberPackagesRepository: Repository<MemberPackage>,
     @InjectRepository(User)
     private readonly usersRepository: Repository<User>,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   async create(createTrainingScheduleDto: CreateTrainingScheduleDto) {
     const payload = createTrainingScheduleDto as SchedulePayload;
+    const member = await this.findMemberOrFail(payload.memberId);
+    const memberPackage = payload.memberPackageId
+      ? await this.findMemberPackageOrFail(payload.memberPackageId)
+      : undefined;
+    const scheduleType = payload.type ?? 'pt';
+    const assignment = await this.resolveTrainerAssignment(
+      member,
+      memberPackage,
+      payload.trainerId,
+      scheduleType,
+    );
     const schedule = this.schedulesRepository.create({
-      member: await this.findMemberOrFail(payload.memberId),
-      memberPackage: payload.memberPackageId
-        ? await this.findMemberPackageOrFail(payload.memberPackageId)
-        : undefined,
-      trainer: payload.trainerId
-        ? await this.findUserOrFail(payload.trainerId)
-        : undefined,
-      type: payload.type ?? 'pt',
+      member,
+      memberPackage: assignment.memberPackage,
+      trainer: assignment.trainer,
+      type: scheduleType,
       startTime: payload.startTime ? new Date(payload.startTime) : new Date(),
       endTime: payload.endTime ? new Date(payload.endTime) : new Date(),
       status: payload.status ?? 'scheduled',
       notes: payload.notes,
     });
 
-    return this.toScheduleResponse(await this.schedulesRepository.save(schedule));
+    const savedSchedule = await this.schedulesRepository.save(schedule);
+    await this.notifySchedule(savedSchedule, 'created');
+
+    return this.toScheduleResponse(savedSchedule);
   }
 
   async findAll() {
@@ -90,7 +102,26 @@ export class TrainingSchedulesService {
     if (payload.status !== undefined) schedule.status = payload.status;
     if (payload.notes !== undefined) schedule.notes = payload.notes;
 
-    return this.toScheduleResponse(await this.schedulesRepository.save(schedule));
+    if (
+      payload.memberId !== undefined ||
+      payload.memberPackageId !== undefined ||
+      payload.trainerId !== undefined ||
+      payload.type !== undefined
+    ) {
+      const assignment = await this.resolveTrainerAssignment(
+        schedule.member,
+        schedule.memberPackage,
+        schedule.trainer?.id,
+        schedule.type,
+      );
+      schedule.memberPackage = assignment.memberPackage;
+      schedule.trainer = assignment.trainer;
+    }
+
+    const savedSchedule = await this.schedulesRepository.save(schedule);
+    await this.notifySchedule(savedSchedule, 'updated');
+
+    return this.toScheduleResponse(savedSchedule);
   }
 
   async remove(id: number) {
@@ -154,6 +185,11 @@ export class TrainingSchedulesService {
       where: {
         id,
       },
+      relations: {
+        member: true,
+        package: true,
+        trainer: true,
+      },
     });
 
     if (!memberPackage) {
@@ -175,6 +211,84 @@ export class TrainingSchedulesService {
     }
 
     return user;
+  }
+
+  private async resolveTrainerAssignment(
+    member: Member | undefined,
+    memberPackage: MemberPackage | undefined,
+    trainerId: number | undefined,
+    type: string | undefined,
+  ) {
+    if (type !== 'pt') {
+      return {
+        memberPackage,
+        trainer: trainerId ? await this.findUserOrFail(trainerId) : undefined,
+      };
+    }
+
+    const ptMemberPackage =
+      memberPackage ?? (await this.findActivePtMemberPackage(member?.id));
+    const assignedTrainer = ptMemberPackage?.trainer;
+
+    if (!ptMemberPackage || !assignedTrainer?.id) {
+      throw new BadRequestException(
+        'Hoi vien chua co goi PT dang hoat dong hoac chua duoc phan cong PT',
+      );
+    }
+
+    if (trainerId && trainerId !== assignedTrainer.id) {
+      throw new BadRequestException(
+        'Lich PT phai dung voi PT dang phu trach hoi vien',
+      );
+    }
+
+    return {
+      memberPackage: ptMemberPackage,
+      trainer: assignedTrainer,
+    };
+  }
+
+  private async findActivePtMemberPackage(memberId?: number) {
+    if (!memberId) {
+      return undefined;
+    }
+
+    const memberPackages = await this.memberPackagesRepository.find({
+      where: {
+        member: {
+          id: memberId,
+        },
+        status: 'active',
+      },
+      relations: {
+        member: true,
+        package: true,
+        trainer: true,
+      },
+      order: {
+        endDate: 'DESC',
+      },
+    });
+
+    return memberPackages.find(
+      (memberPackage) =>
+        (memberPackage.packageTypeSnapshot ?? memberPackage.package?.type) ===
+          'pt' && !this.isExpired(memberPackage.endDate),
+    );
+  }
+
+  private isExpired(endDate?: Date | string) {
+    const endDateString = this.toDateOnlyString(endDate);
+    if (!endDateString) {
+      return false;
+    }
+
+    return endDateString < new Date().toISOString().slice(0, 10);
+  }
+
+  private toDateOnlyString(date?: Date | string) {
+    if (!date) return undefined;
+    return typeof date === 'string' ? date.slice(0, 10) : date.toISOString().slice(0, 10);
   }
 
   private toDateTimeString(date?: Date | string) {
@@ -203,5 +317,38 @@ export class TrainingSchedulesService {
       status: schedule.status ?? 'scheduled',
       notes: schedule.notes,
     };
+  }
+
+  private async notifySchedule(
+    schedule: TrainingSchedule,
+    action: 'created' | 'updated',
+  ) {
+    const actionText = action === 'created' ? 'được tạo' : 'được cập nhật';
+    const memberName = schedule.member?.fullName ?? 'hội viên';
+    const startTime = schedule.startTime
+      ? new Date(schedule.startTime).toLocaleString('vi-VN')
+      : '';
+
+    await this.notificationsService.createForUser(schedule.member?.user?.id, {
+      title:
+        action === 'created'
+          ? 'Lịch tập mới'
+          : 'Lịch tập đã được cập nhật',
+      message: `Lịch tập của bạn đã ${actionText}${startTime ? `: ${startTime}` : ''}.`,
+      type: `schedule_${action}`,
+      targetRoute: '/schedules',
+      relatedEntityId: String(schedule.id),
+    });
+
+    await this.notificationsService.createForUser(schedule.trainer?.id, {
+      title:
+        action === 'created'
+          ? 'Lịch tập mới với hội viên'
+          : 'Lịch tập đã được cập nhật',
+      message: `Lịch tập với ${memberName} đã ${actionText}${startTime ? `: ${startTime}` : ''}.`,
+      type: `schedule_${action}`,
+      targetRoute: '/schedules',
+      relatedEntityId: String(schedule.id),
+    });
   }
 }

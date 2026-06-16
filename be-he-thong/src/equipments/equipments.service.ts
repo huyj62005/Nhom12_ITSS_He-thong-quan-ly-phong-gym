@@ -9,6 +9,8 @@ import { LessThan, Repository } from 'typeorm';
 import { CreateEquipmentDto } from './dto/create-equipment.dto';
 import { UpdateEquipmentDto } from './dto/update-equipment.dto';
 import { Equipment } from './entities/equipment.entity';
+import { NotificationsService } from '../notifications/notifications.service';
+import { UserRole } from '../users/entities/user.entity';
 
 type EquipmentStatus = 'available' | 'maintenance' | 'broken';
 
@@ -24,6 +26,7 @@ export class EquipmentsService {
   constructor(
     @InjectRepository(Equipment)
     private readonly equipmentsRepository: Repository<Equipment>,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   async create(createEquipmentDto: CreateEquipmentDto) {
@@ -31,6 +34,7 @@ export class EquipmentsService {
       const payload = this.buildEquipmentEntity(createEquipmentDto);
       const equipment = this.equipmentsRepository.create(payload);
       const savedEquipment = await this.equipmentsRepository.save(equipment);
+      await this.notifyEquipmentAttention(savedEquipment);
 
       return this.toEquipmentResponse(savedEquipment);
     } catch (error) {
@@ -67,6 +71,7 @@ export class EquipmentsService {
       Object.assign(equipment, updates);
 
       const savedEquipment = await this.equipmentsRepository.save(equipment);
+      await this.notifyEquipmentAttention(savedEquipment);
       return this.toEquipmentResponse(savedEquipment);
     } catch (error) {
       this.logAndThrow('update', error);
@@ -377,5 +382,32 @@ export class EquipmentsService {
     const message = error instanceof Error ? error.message : String(error);
     this.logger.error(`[equipments:${action}] failed: ${message}`);
     throw error;
+  }
+
+  private async notifyEquipmentAttention(equipment: Equipment) {
+    const status = equipment.status ?? 'available';
+    const maintenanceState = this.getMaintenanceState(equipment);
+    const needsAttention =
+      status === 'maintenance' || status === 'broken' || maintenanceState.dueSoon;
+
+    if (!needsAttention) return;
+
+    const statusText =
+      status === 'broken'
+        ? 'đang hỏng'
+        : status === 'maintenance'
+          ? 'đang bảo trì'
+          : 'sắp đến hạn bảo trì';
+
+    await this.notificationsService.createForRoles(
+      [UserRole.ADMIN, UserRole.MANAGER],
+      {
+        title: 'Thiết bị cần chú ý',
+        message: `${equipment.name ?? 'Thiết bị'} ${statusText}.`,
+        type: 'equipment_attention',
+        targetRoute: '/equipment',
+        relatedEntityId: String(equipment.id),
+      },
+    );
   }
 }

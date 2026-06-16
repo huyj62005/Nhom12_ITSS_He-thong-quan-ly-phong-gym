@@ -31,6 +31,7 @@ type ApiFeedback = {
   subject?: string;
   content?: string;
   message?: string;
+  category?: string;
   priority?: string;
   status?: string;
   adminReply?: string;
@@ -70,9 +71,17 @@ const normalizeFeedbackStatus = (status?: string): Feedback['status'] => {
   return 'pending';
 };
 
-const normalizePriority = (priority?: string): Feedback['priority'] => {
-  if (priority === 'low' || priority === 'high') return priority;
-  return 'medium';
+const normalizeFeedbackCategory = (category?: string): Feedback['category'] => {
+  if (
+    category === 'service' ||
+    category === 'equipment' ||
+    category === 'support' ||
+    category === 'other'
+  ) {
+    return category;
+  }
+
+  return 'service';
 };
 
 const mapApiFeedback = (feedback: ApiFeedback): Feedback => {
@@ -90,7 +99,7 @@ const mapApiFeedback = (feedback: ApiFeedback): Feedback => {
     subject: feedback.subject ?? feedback.title ?? '',
     message: feedback.message ?? feedback.content ?? '',
     status: normalizeFeedbackStatus(feedback.status),
-    priority: normalizePriority(feedback.priority),
+    category: normalizeFeedbackCategory(feedback.category),
     createdAt: feedback.createdAt ?? feedback.created_at ?? new Date().toISOString(),
   };
 
@@ -119,7 +128,7 @@ export const FeedbackPage: React.FC = () => {
   const [newFeedback, setNewFeedback] = useState({
     subject: '',
     message: '',
-    priority: 'medium' as 'low' | 'medium' | 'high',
+    category: 'service' as Feedback['category'],
   });
   const currentMember = user
     ? members.find(
@@ -182,7 +191,8 @@ export const FeedbackPage: React.FC = () => {
           memberId: Number(currentMember.id),
           title: newFeedback.subject,
           content: newFeedback.message,
-          priority: newFeedback.priority,
+          category: newFeedback.category,
+          priority: 'medium',
           status: 'pending',
         }),
       });
@@ -198,7 +208,7 @@ export const FeedbackPage: React.FC = () => {
       setNewFeedback({
         subject: '',
         message: '',
-        priority: 'medium',
+        category: 'service',
       });
       setShowModal(false);
       alert('Phan hoi cua ban da duoc gui den quan tri vien!');
@@ -320,29 +330,33 @@ export const FeedbackPage: React.FC = () => {
     }
   };
 
-  const getPriorityColor = (priority: string) => {
-    switch (priority) {
-      case 'high':
-        return 'bg-red-100 text-red-800';
-      case 'medium':
-        return 'bg-yellow-100 text-yellow-800';
-      case 'low':
+  const getCategoryColor = (category: string) => {
+    switch (category) {
+      case 'equipment':
+        return 'bg-orange-100 text-orange-800';
+      case 'support':
+        return 'bg-blue-100 text-blue-800';
+      case 'other':
+        return 'bg-gray-100 text-gray-800';
+      case 'service':
         return 'bg-green-100 text-green-800';
       default:
         return 'bg-gray-100 text-gray-800';
     }
   };
 
-  const getPriorityText = (priority: string) => {
-    switch (priority) {
-      case 'high':
-        return 'Cao';
-      case 'medium':
-        return 'Trung bình';
-      case 'low':
-        return 'Thấp';
+  const getCategoryText = (category: string) => {
+    switch (category) {
+      case 'service':
+        return 'Dịch vụ';
+      case 'equipment':
+        return 'Thiết bị';
+      case 'support':
+        return 'Hỗ trợ';
+      case 'other':
+        return 'Khác';
       default:
-        return priority;
+        return 'Dịch vụ';
     }
   };
 
@@ -460,11 +474,11 @@ export const FeedbackPage: React.FC = () => {
                   <div className="flex-1">
                     <div className="flex items-center gap-2 mb-2">
                       <span
-                        className={`px-2 py-1 text-xs font-semibold rounded-full ${getPriorityColor(
-                          feedback.priority
+                        className={`px-2 py-1 text-xs font-semibold rounded-full ${getCategoryColor(
+                          feedback.category
                         )}`}
                       >
-                        {getPriorityText(feedback.priority)}
+                        {getCategoryText(feedback.category)}
                       </span>
                       <span
                         className={`px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(
@@ -567,21 +581,22 @@ export const FeedbackPage: React.FC = () => {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Mức độ ưu tiên
+                  Nhóm phản hồi
                 </label>
                 <select
-                  value={newFeedback.priority}
+                  value={newFeedback.category}
                   onChange={(e) =>
                     setNewFeedback({
                       ...newFeedback,
-                      priority: e.target.value as 'low' | 'medium' | 'high',
+                      category: e.target.value as Feedback['category'],
                     })
                   }
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
-                  <option value="low">Thấp</option>
-                  <option value="medium">Trung bình</option>
-                  <option value="high">Cao</option>
+                  <option value="service">Dịch vụ</option>
+                  <option value="equipment">Thiết bị</option>
+                  <option value="support">Hỗ trợ</option>
+                  <option value="other">Khác</option>
                 </select>
               </div>
 

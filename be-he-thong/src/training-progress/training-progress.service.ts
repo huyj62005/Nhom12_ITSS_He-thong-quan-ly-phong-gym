@@ -164,6 +164,16 @@ export class TrainingProgressService {
     return typeof date === 'string' ? date : date.toISOString();
   }
 
+  private toDateOnlyString(date?: Date | string) {
+    if (!date) return undefined;
+    if (typeof date === 'string') return date.slice(0, 10);
+
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+
   private toProgressDate(value?: string) {
     if (!value) {
       return new Date();
@@ -183,8 +193,8 @@ export class TrainingProgressService {
       memberId: progress.member?.id,
       member: progress.member,
       trainingScheduleId: progress.trainingSchedule?.id,
-      date: this.toDateString(progress.recordedAt),
-      recordedAt: this.toDateString(progress.recordedAt),
+      date: this.toDateOnlyString(progress.recordedAt),
+      recordedAt: this.toDateOnlyString(progress.recordedAt),
       goal: progress.goal ?? '',
       weight: Number(progress.bodyWeight ?? 0),
       bodyWeight: Number(progress.bodyWeight ?? 0),

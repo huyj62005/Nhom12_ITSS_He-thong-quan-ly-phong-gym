@@ -64,6 +64,7 @@ type ApiUser = {
   name?: string;
   email?: string;
   phone?: string;
+  role?: string;
   status?: string;
   avatar?: string;
   avatarUrl?: string;
@@ -108,6 +109,7 @@ const mapApiTrainerToStaff = (trainer: ApiTrainerProfile): StaffMember => {
   const specialties = Array.isArray(trainer.specialization)
     ? trainer.specialization.join(", ")
     : trainer.specialization ?? trainer.specialties ?? "";
+  const staffType: StaffType = user?.role === "trainer" ? "trainer" : "manager";
 
   return {
     id: String(trainer.id ?? ""),
@@ -118,7 +120,7 @@ const mapApiTrainerToStaff = (trainer: ApiTrainerProfile): StaffMember => {
     dateOfBirth: "",
     gender: "male",
     address: "",
-    staffType: "trainer",
+    staffType,
     specialization: specialties,
     experience: Number(trainer.experienceYears ?? trainer.experience_years ?? 0),
     description: trainer.bio ?? "",

@@ -216,12 +216,30 @@ export const Progress: React.FC = () => {
     setShowEditModal(true);
   };
 
+  const applyProgressDate = (date: string) => {
+    const progressForDate = memberProgress.find((item) => item.date === date);
+
+    setEditingProgressId(progressForDate?.id ?? "");
+    setProgressForm((current) => ({
+      ...current,
+      date,
+      weight: progressForDate ? String(progressForDate.weight) : "",
+      bodyFat: progressForDate ? String(progressForDate.bodyFat) : "",
+      muscleMass: progressForDate ? String(progressForDate.muscleMass) : "",
+      notes: progressForDate?.notes ?? "",
+    }));
+  };
+
   const saveProgress = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!selectedMember || !isTrainer) return;
 
     setIsSavingProgress(true);
     try {
+      const progressForDate = memberProgress.find(
+        (item) => item.date === progressForm.date,
+      );
+      const progressIdToSave = editingProgressId || progressForDate?.id || "";
       const payload = {
         memberId: Number(selectedMember),
         recordedAt: `${progressForm.date}T00:00:00`,
@@ -232,20 +250,20 @@ export const Progress: React.FC = () => {
         evaluation: progressForm.notes,
       };
       const savedProgress = await requestJson<unknown>(
-        editingProgressId
-          ? `/training-progress/${editingProgressId}`
+        progressIdToSave
+          ? `/training-progress/${progressIdToSave}`
           : "/training-progress",
         {
-          method: editingProgressId ? "PATCH" : "POST",
+          method: progressIdToSave ? "PATCH" : "POST",
           body: JSON.stringify(payload),
         },
       );
       const mappedProgress = mapApiProgress(savedProgress as ApiProgress);
 
       setProgress((current) =>
-        editingProgressId
+        progressIdToSave
           ? current.map((item) =>
-              item.id === editingProgressId ? mappedProgress : item,
+              item.id === progressIdToSave ? mappedProgress : item,
             )
           : [mappedProgress, ...current],
       );
@@ -432,12 +450,7 @@ export const Progress: React.FC = () => {
                   required
                   type="date"
                   value={progressForm.date}
-                  onChange={(event) =>
-                    setProgressForm((current) => ({
-                      ...current,
-                      date: event.target.value,
-                    }))
-                  }
+                  onChange={(event) => applyProgressDate(event.target.value)}
                   className={inputClass}
                 />
               </FormField>

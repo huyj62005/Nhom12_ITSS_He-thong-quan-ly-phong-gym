@@ -5,6 +5,8 @@ import { CreateFeedbackDto } from './dto/create-feedback.dto';
 import { UpdateFeedbackDto } from './dto/update-feedback.dto';
 import { Feedback } from './entities/feedback.entity';
 import { Member } from '../members/entities/member.entity';
+import { NotificationsService } from '../notifications/notifications.service';
+import { UserRole } from '../users/entities/user.entity';
 
 type FeedbackPayload = Partial<CreateFeedbackDto> & {
   priority?: string;
@@ -23,6 +25,7 @@ export class FeedbacksService {
     private readonly feedbacksRepository: Repository<Feedback>,
     @InjectRepository(Member)
     private readonly membersRepository: Repository<Member>,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   async create(createFeedbackDto: CreateFeedbackDto) {
@@ -36,7 +39,19 @@ export class FeedbacksService {
       status: payload.status ?? 'pending',
     });
 
-    return this.toFeedbackResponse(await this.feedbacksRepository.save(feedback));
+    const savedFeedback = await this.feedbacksRepository.save(feedback);
+    await this.notificationsService.createForRoles(
+      [UserRole.ADMIN, UserRole.MANAGER],
+      {
+        title: 'Phản hồi mới',
+        message: `${savedFeedback.member?.fullName ?? 'Hội viên'} vừa gửi phản hồi ${savedFeedback.title ? `về ${savedFeedback.title}` : 'mới'}.`,
+        type: 'feedback_created',
+        targetRoute: '/feedback',
+        relatedEntityId: String(savedFeedback.id),
+      },
+    );
+
+    return this.toFeedbackResponse(savedFeedback);
   }
 
   async findAll() {
@@ -79,7 +94,19 @@ export class FeedbacksService {
       feedback.resolvedAt = new Date();
     }
 
-    return this.toFeedbackResponse(await this.feedbacksRepository.save(feedback));
+    const savedFeedback = await this.feedbacksRepository.save(feedback);
+
+    if (adminReply !== undefined) {
+      await this.notificationsService.createForUser(savedFeedback.member?.user?.id, {
+        title: 'Yêu cầu của bạn đã được phản hồi',
+        message: 'Yêu cầu của bạn đã được phản hồi.',
+        type: 'feedback_replied',
+        targetRoute: '/feedback',
+        relatedEntityId: String(savedFeedback.id),
+      });
+    }
+
+    return this.toFeedbackResponse(savedFeedback);
   }
 
   async remove(id: number) {

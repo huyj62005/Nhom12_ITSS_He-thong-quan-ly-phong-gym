@@ -5,9 +5,14 @@ import { PaymentsController } from './payments.controller';
 import { Payment } from './entities/payment.entity';
 import { Member } from '../members/entities/member.entity';
 import { MemberPackage } from '../member-packages/entities/member-package.entity';
+import { NotificationsModule } from '../notifications/notifications.module';
+import { User } from '../users/entities/user.entity';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Payment, Member, MemberPackage])],
+  imports: [
+    TypeOrmModule.forFeature([Payment, Member, MemberPackage, User]),
+    NotificationsModule,
+  ],
   controllers: [PaymentsController],
   providers: [PaymentsService],
 })

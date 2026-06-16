@@ -10,7 +10,8 @@ import { UpdateMemberPackageDto } from './dto/update-member-package.dto';
 import { MemberPackage } from './entities/member-package.entity';
 import { Member } from '../members/entities/member.entity';
 import { GymPackage } from '../gym-packages/entities/gym-package.entity';
-import { User } from '../users/entities/user.entity';
+import { User, UserRole } from '../users/entities/user.entity';
+import { NotificationsService } from '../notifications/notifications.service';
 
 @Injectable()
 export class MemberPackagesService {
@@ -23,6 +24,7 @@ export class MemberPackagesService {
     private readonly gymPackagesRepository: Repository<GymPackage>,
     @InjectRepository(User)
     private readonly usersRepository: Repository<User>,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   async create(createMemberPackageDto: CreateMemberPackageDto) {
@@ -56,9 +58,12 @@ export class MemberPackagesService {
     const savedMemberPackage =
       await this.memberPackagesRepository.save(memberPackage);
 
-    return this.toMemberPackageResponse(
-      await this.findMemberPackageOrFail(savedMemberPackage.id),
+    const fullMemberPackage = await this.findMemberPackageOrFail(
+      savedMemberPackage.id,
     );
+    await this.notifyMemberPackageCreated(fullMemberPackage);
+
+    return this.toMemberPackageResponse(fullMemberPackage);
   }
 
   async findAll() {
@@ -108,6 +113,7 @@ export class MemberPackagesService {
 
   async update(id: number, updateMemberPackageDto: UpdateMemberPackageDto) {
     const memberPackage = await this.findMemberPackageOrFail(id);
+    const previousTrainerId = memberPackage.trainer?.id;
     const updates =
       updateMemberPackageDto as Partial<CreateMemberPackageDto>;
 
@@ -142,9 +148,17 @@ export class MemberPackagesService {
     const savedMemberPackage =
       await this.memberPackagesRepository.save(memberPackage);
 
-    return this.toMemberPackageResponse(
-      await this.findMemberPackageOrFail(savedMemberPackage.id),
+    const fullMemberPackage = await this.findMemberPackageOrFail(
+      savedMemberPackage.id,
     );
+    if (
+      fullMemberPackage.trainer?.id &&
+      fullMemberPackage.trainer.id !== previousTrainerId
+    ) {
+      await this.notifyTrainerAssigned(fullMemberPackage);
+    }
+
+    return this.toMemberPackageResponse(fullMemberPackage);
   }
 
   async remove(id: number) {
@@ -167,7 +181,9 @@ export class MemberPackagesService {
         id,
       },
       relations: {
-        member: true,
+        member: {
+          user: true,
+        },
         package: true,
         trainer: true,
       },
@@ -411,5 +427,25 @@ export class MemberPackagesService {
       status: memberPackage.status,
       renewalSuggestion,
     };
+  }
+
+  private async notifyMemberPackageCreated(memberPackage: MemberPackage) {
+    await this.notifyTrainerAssigned(memberPackage);
+  }
+
+  private async notifyTrainerAssigned(memberPackage: MemberPackage) {
+    const packageType =
+      memberPackage.packageTypeSnapshot ?? memberPackage.package?.type;
+    if (!memberPackage.trainer?.id || packageType !== 'pt') {
+      return;
+    }
+
+    await this.notificationsService.createForUser(memberPackage.trainer.id, {
+      title: 'Hội viên mới được phân công',
+      message: `Bạn vừa được phân công phụ trách ${memberPackage.member?.fullName ?? 'một hội viên'}.`,
+      type: 'trainer_assigned',
+      targetRoute: '/progress',
+      relatedEntityId: String(memberPackage.member?.id ?? ''),
+    });
   }
 }
