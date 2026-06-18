@@ -62,4 +62,10 @@ export class TrainingSchedule {
         nullable: true,
     })
     notes?: string;
+
+    @Column('text', {
+        name: 'approval_history',
+        nullable: true,
+    })
+    approvalHistory?: string;
 }

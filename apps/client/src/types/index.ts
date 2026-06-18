@@ -84,6 +84,15 @@ export interface Trainer {
 }
 
 // Schedule Types
+export interface ScheduleApprovalHistoryEntry {
+  action: "requested" | "accepted" | "rejected" | "resubmitted" | "cancelled";
+  status: "pending" | "scheduled" | "completed" | "cancelled" | "rejected";
+  trainerId?: string;
+  trainerName?: string;
+  reason?: string;
+  at: string;
+}
+
 export interface Schedule {
   id: string;
   memberId: string;
@@ -94,8 +103,9 @@ export interface Schedule {
   startTime: string;
   endTime: string;
   type: "personal" | "pt" | "class";
-  status: "scheduled" | "completed" | "cancelled";
+  status: "pending" | "scheduled" | "completed" | "cancelled" | "rejected";
   notes?: string;
+  approvalHistory?: ScheduleApprovalHistoryEntry[];
 }
 
 // Workout Progress Types

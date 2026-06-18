@@ -359,6 +359,16 @@ export const Packages: React.FC = () => {
           </div>
         )}
 
+        {canRegisterPackage && !hasValidCurrentPackage && (
+          <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
+            <p className="text-sm font-semibold text-blue-900">
+              Bạn hiện tại đang chưa đăng ký gói tập nào hoặc gói tập của bạn đã
+              hết hạn, vui lòng lựa chọn gói tập mới để không bị gián đoạn dịch
+              vụ.
+            </p>
+          </div>
+        )}
+
         {canRegisterPackage &&
         hasValidCurrentPackage &&
         currentMember?.currentPackage ? (

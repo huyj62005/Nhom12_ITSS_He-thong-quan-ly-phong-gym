@@ -1,9 +1,18 @@
 import React, { useEffect, useState } from "react";
-import { Calendar as CalendarIcon, Clock, Plus, User } from "lucide-react";
+import {
+  Calendar as CalendarIcon,
+  CheckCircle,
+  Clock,
+  History,
+  Plus,
+  RefreshCw,
+  User,
+  XCircle,
+} from "lucide-react";
 import { DashboardLayout } from "../components/DashboardLayout";
 import { useAuth } from "../contexts/AuthContext";
 import { useGymData } from "../contexts/GymDataContext";
-import { Schedule } from "../types";
+import { Schedule, ScheduleApprovalHistoryEntry } from "../types";
 
 const API_BASE_URL = "http://localhost:3000";
 
@@ -42,6 +51,8 @@ type ApiSchedule = {
   end_time?: string;
   status?: string;
   notes?: string;
+  approvalHistory?: ScheduleApprovalHistoryEntry[] | string;
+  approval_history?: ScheduleApprovalHistoryEntry[] | string;
 };
 
 type ApiTrainerProfile = {
@@ -59,6 +70,12 @@ type ScheduleForm = {
   startTime: string;
   endTime: string;
   notes: string;
+};
+
+type ReplacementForm = {
+  schedule: Schedule | null;
+  trainerId: string;
+  reason: string;
 };
 
 const toDateInputValue = (date: Date) => {
@@ -126,8 +143,45 @@ const normalizeScheduleType = (type?: string): Schedule["type"] => {
 };
 
 const normalizeScheduleStatus = (status?: string): Schedule["status"] => {
-  if (status === "completed" || status === "cancelled") return status;
+  const normalized = status?.toLowerCase();
+  if (
+    normalized === "pending" ||
+    normalized === "scheduled" ||
+    normalized === "completed" ||
+    normalized === "cancelled" ||
+    normalized === "rejected"
+  ) {
+    return normalized;
+  }
   return "scheduled";
+};
+
+const normalizeApprovalHistory = (
+  history?: ScheduleApprovalHistoryEntry[] | string,
+): ScheduleApprovalHistoryEntry[] => {
+  if (!history) return [];
+  const normalizeEntry = (
+    entry: ScheduleApprovalHistoryEntry,
+  ): ScheduleApprovalHistoryEntry => {
+    const normalizedEntry: ScheduleApprovalHistoryEntry = { ...entry };
+    if (entry.trainerId !== undefined) {
+      normalizedEntry.trainerId = String(entry.trainerId);
+    }
+    return normalizedEntry;
+  };
+
+  if (Array.isArray(history)) {
+    return history.map(normalizeEntry);
+  }
+
+  try {
+    const parsed = JSON.parse(history);
+    return Array.isArray(parsed)
+      ? (parsed as ScheduleApprovalHistoryEntry[]).map(normalizeEntry)
+      : [];
+  } catch {
+    return [];
+  }
 };
 
 const getTime = (value?: string) => {
@@ -192,6 +246,9 @@ const mapApiSchedule = (schedule: ApiSchedule): Schedule => {
     endTime: getTime(schedule.endTime ?? schedule.end_time),
     type: normalizeScheduleType(schedule.type),
     status: normalizeScheduleStatus(schedule.status),
+    approvalHistory: normalizeApprovalHistory(
+      schedule.approvalHistory ?? schedule.approval_history,
+    ),
   };
 
   if (trainerId) {
@@ -211,7 +268,8 @@ export const Schedules: React.FC = () => {
   const isManager = user?.role === "manager";
   const isTrainer = user?.role === "trainer";
   const isMember = user?.role === "member";
-  const isReadOnlySchedule = isManager || isTrainer;
+  const canCreateSchedule = !isManager && !isTrainer;
+  const canUpdateScheduleStatus = !isManager && !isTrainer;
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [trainers, setTrainers] = useState<ApiTrainerProfile[]>([]);
   const [selectedDate, setSelectedDate] = useState(
@@ -221,6 +279,11 @@ export const Schedules: React.FC = () => {
   const [scheduleForm, setScheduleForm] = useState<ScheduleForm>(
     emptyScheduleForm,
   );
+  const [replacementForm, setReplacementForm] = useState<ReplacementForm>({
+    schedule: null,
+    trainerId: "",
+    reason: "",
+  });
   const currentMember = user
     ? members.find((member) => member.userId === user.id) ??
       members.find((member) => member.email === user.email) ??
@@ -375,7 +438,9 @@ export const Schedules: React.FC = () => {
           startTime,
           endTime,
           notes: scheduleForm.notes,
-          status: "scheduled",
+          status: isMember && scheduleType === "pt" ? "pending" : "scheduled",
+          approvalAction:
+            isMember && scheduleType === "pt" ? "requested" : undefined,
         }),
       });
 
@@ -398,10 +463,11 @@ export const Schedules: React.FC = () => {
   const updateScheduleStatus = async (
     schedule: Schedule,
     status: Schedule["status"],
+    extraPayload: Record<string, unknown> = {},
   ) => {
     const apiSchedule = await requestJson<unknown>(`/training-schedules/${schedule.id}`, {
       method: "PATCH",
-      body: JSON.stringify({ status }),
+      body: JSON.stringify({ status, ...extraPayload }),
     });
     const updatedSchedule =
       typeof apiSchedule === "object" && apiSchedule !== null
@@ -413,16 +479,108 @@ export const Schedules: React.FC = () => {
     );
   };
 
+  const acceptSchedule = (schedule: Schedule) =>
+    updateScheduleStatus(schedule, "scheduled", {
+      approvalAction: "accepted",
+    }).catch((error) => {
+      window.alert(error instanceof Error ? error.message : "Không thể nhận lịch.");
+    });
+
+  const rejectSchedule = (schedule: Schedule) => {
+    const reason = window.prompt("Nhập lý do từ chối lịch tập:");
+    if (reason === null) return;
+
+    updateScheduleStatus(schedule, "rejected", {
+      approvalAction: "rejected",
+      approvalReason: reason.trim() || "PT từ chối lịch tập",
+    }).catch((error) => {
+      window.alert(error instanceof Error ? error.message : "Không thể từ chối lịch.");
+    });
+  };
+
+  const openReplacementModal = (schedule: Schedule) => {
+    const firstReplacementTrainer = trainers.find(
+      (trainer) => getTrainerUserId(trainer) !== schedule.trainerId,
+    );
+
+    setReplacementForm({
+      schedule,
+      trainerId: firstReplacementTrainer
+        ? getTrainerUserId(firstReplacementTrainer)
+        : "",
+      reason: "",
+    });
+  };
+
+  const closeReplacementModal = () => {
+    setReplacementForm({
+      schedule: null,
+      trainerId: "",
+      reason: "",
+    });
+  };
+
+  const submitReplacementTrainer = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!replacementForm.schedule || !replacementForm.trainerId) return;
+
+    try {
+      await updateScheduleStatus(replacementForm.schedule, "pending", {
+        trainerId: Number(replacementForm.trainerId),
+        approvalAction: "resubmitted",
+        approvalReason:
+          replacementForm.reason.trim() || "Hội viên chọn PT thay thế",
+      });
+      closeReplacementModal();
+    } catch (error) {
+      window.alert(
+        error instanceof Error ? error.message : "Không thể chọn PT thay thế.",
+      );
+    }
+  };
+
+  const cancelRejectedSchedule = (schedule: Schedule) => {
+    updateScheduleStatus(schedule, "cancelled", {
+      approvalAction: "cancelled",
+      approvalReason: "Hội viên không chọn PT thay thế",
+    }).catch((error) => {
+      window.alert(error instanceof Error ? error.message : "Không thể hủy lịch.");
+    });
+  };
+
   const getStatusColor = (status: string) => {
+    if (status === "pending") return "bg-amber-100 text-amber-800";
+    if (status === "scheduled") return "bg-green-100 text-green-800";
     if (status === "completed") return "bg-green-100 text-green-800";
     if (status === "cancelled") return "bg-red-100 text-red-800";
+    if (status === "rejected") return "bg-orange-100 text-orange-800";
     return "bg-blue-100 text-blue-800";
   };
 
   const getStatusText = (status: string) => {
+    if (status === "pending") return "Đang chờ";
+    if (status === "scheduled") return "Thành công";
     if (status === "completed") return "Hoàn thành";
     if (status === "cancelled") return "Đã hủy";
-    return "Đã lên lịch";
+    if (status === "rejected") return "PT từ chối";
+    return "Thành công";
+  };
+
+  const getApprovalActionText = (
+    action: ScheduleApprovalHistoryEntry["action"],
+  ) => {
+    if (action === "accepted") return "đã nhận lịch";
+    if (action === "rejected") return "từ chối";
+    if (action === "resubmitted") return "được chọn thay thế";
+    if (action === "cancelled") return "đã hủy";
+    return "được yêu cầu";
+  };
+
+  const formatHistoryTime = (value: string) => {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime())
+      ? value
+      : date.toLocaleString("vi-VN");
   };
 
   const getTypeText = (type: string) => {
@@ -447,7 +605,7 @@ export const Schedules: React.FC = () => {
               Quản lý lịch tập luyện và đặt lịch từ dữ liệu hệ thống
             </p>
           </div>
-          {!isReadOnlySchedule && (
+          {canCreateSchedule && (
             <button
               onClick={() => setShowModal(true)}
               className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
@@ -477,73 +635,184 @@ export const Schedules: React.FC = () => {
                 <p>Không có lịch tập nào cho ngày này</p>
               </div>
             ) : (
-              filteredSchedules.map((schedule) => (
-                <div
-                  key={schedule.id}
-                  className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow"
-                >
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-3 mb-2">
-                        <span
-                          className={`px-2 py-1 text-xs font-semibold rounded-full ${getTypeColor(
-                            schedule.type,
-                          )}`}
-                        >
-                          {getTypeText(schedule.type)}
-                        </span>
-                        <span
-                          className={`px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(
-                            schedule.status,
-                          )}`}
-                        >
-                          {getStatusText(schedule.status)}
-                        </span>
-                      </div>
-                      <h3 className="font-bold text-lg text-gray-900 mb-2">
-                        {schedule.memberName}
-                      </h3>
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm text-gray-600">
-                        <div className="flex items-center gap-2">
-                          <Clock size={16} />
-                          <span>
-                            {schedule.startTime} - {schedule.endTime}
+              filteredSchedules.map((schedule) => {
+                const canTrainerRespond =
+                  isTrainer &&
+                  schedule.type === "pt" &&
+                  schedule.status === "pending" &&
+                  Boolean(schedule.trainerId) &&
+                  currentTrainerIds.includes(schedule.trainerId ?? "");
+                const canMemberResolveRejected =
+                  isMember &&
+                  schedule.type === "pt" &&
+                  schedule.status === "rejected";
+                const canCloseSchedule =
+                  canUpdateScheduleStatus && schedule.status === "scheduled";
+
+                return (
+                  <div
+                    key={schedule.id}
+                    className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow"
+                  >
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-3 mb-2">
+                          <span
+                            className={`px-2 py-1 text-xs font-semibold rounded-full ${getTypeColor(
+                              schedule.type,
+                            )}`}
+                          >
+                            {getTypeText(schedule.type)}
+                          </span>
+                          <span
+                            className={`px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(
+                              schedule.status,
+                            )}`}
+                          >
+                            {getStatusText(schedule.status)}
                           </span>
                         </div>
-                        {schedule.trainerName && (
+                        <h3 className="font-bold text-lg text-gray-900 mb-2">
+                          {schedule.memberName}
+                        </h3>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm text-gray-600">
                           <div className="flex items-center gap-2">
-                            <User size={16} />
-                            <span>PT: {schedule.trainerName}</span>
+                            <Clock size={16} />
+                            <span>
+                              {schedule.startTime} - {schedule.endTime}
+                            </span>
                           </div>
-                        )}
-                        {schedule.notes && <span>{schedule.notes}</span>}
+                          {schedule.trainerName && (
+                            <div className="flex items-center gap-2">
+                              <User size={16} />
+                              <span>PT: {schedule.trainerName}</span>
+                            </div>
+                          )}
+                          {schedule.notes && <span>{schedule.notes}</span>}
+                        </div>
+
+                        {schedule.approvalHistory &&
+                          schedule.approvalHistory.length > 0 && (
+                            <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50 p-3">
+                              <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-gray-700">
+                                <History size={15} />
+                                Lịch sử xử lý PT
+                              </div>
+                              <div className="space-y-1.5 text-sm text-gray-600">
+                                {schedule.approvalHistory.map((entry, index) => (
+                                  <p key={`${entry.at}-${index}`}>
+                                    {entry.trainerName
+                                      ? `PT ${entry.trainerName}`
+                                      : "PT"}{" "}
+                                    {getApprovalActionText(entry.action)}
+                                    {entry.reason ? `: ${entry.reason}` : ""}{" "}
+                                    <span className="text-xs text-gray-400">
+                                      ({formatHistoryTime(entry.at)})
+                                    </span>
+                                  </p>
+                                ))}
+                              </div>
+                            </div>
+                          )}
                       </div>
+
+                      {(canTrainerRespond ||
+                        canMemberResolveRejected ||
+                        canCloseSchedule) && (
+                        <div className="flex flex-col gap-2">
+                          {canTrainerRespond && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => acceptSchedule(schedule)}
+                                className="inline-flex items-center justify-center gap-1 rounded bg-green-50 px-3 py-1.5 text-sm text-green-700 hover:bg-green-100"
+                              >
+                                <CheckCircle size={15} />
+                                Nhận lịch
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => rejectSchedule(schedule)}
+                                className="inline-flex items-center justify-center gap-1 rounded bg-red-50 px-3 py-1.5 text-sm text-red-700 hover:bg-red-100"
+                              >
+                                <XCircle size={15} />
+                                Từ chối
+                              </button>
+                            </>
+                          )}
+
+                          {canMemberResolveRejected && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => openReplacementModal(schedule)}
+                                className="inline-flex items-center justify-center gap-1 rounded bg-blue-50 px-3 py-1.5 text-sm text-blue-700 hover:bg-blue-100"
+                              >
+                                <RefreshCw size={15} />
+                                Chọn PT khác
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => cancelRejectedSchedule(schedule)}
+                                className="inline-flex items-center justify-center gap-1 rounded bg-gray-100 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-200"
+                              >
+                                Không đặt PT nữa
+                              </button>
+                            </>
+                          )}
+
+                          {canCloseSchedule && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  updateScheduleStatus(
+                                    schedule,
+                                    "completed",
+                                  ).catch((error) => {
+                                    window.alert(
+                                      error instanceof Error
+                                        ? error.message
+                                        : "Không thể hoàn thành lịch.",
+                                    );
+                                  })
+                                }
+                                className="rounded bg-green-50 px-3 py-1.5 text-sm text-green-700 hover:bg-green-100"
+                              >
+                                Hoàn thành
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  updateScheduleStatus(
+                                    schedule,
+                                    "cancelled",
+                                  ).catch((error) => {
+                                    window.alert(
+                                      error instanceof Error
+                                        ? error.message
+                                        : "Không thể hủy lịch.",
+                                    );
+                                  })
+                                }
+                                className="rounded bg-red-50 px-3 py-1.5 text-sm text-red-700 hover:bg-red-100"
+                              >
+                                Hủy
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      )}
                     </div>
-                    {!isReadOnlySchedule && schedule.status === "scheduled" && (
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => updateScheduleStatus(schedule, "completed")}
-                          className="px-3 py-1 text-sm bg-green-50 text-green-700 rounded hover:bg-green-100"
-                        >
-                          Hoàn thành
-                        </button>
-                        <button
-                          onClick={() => updateScheduleStatus(schedule, "cancelled")}
-                          className="px-3 py-1 text-sm bg-red-50 text-red-700 rounded hover:bg-red-100"
-                        >
-                          Hủy
-                        </button>
-                      </div>
-                    )}
                   </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         </div>
       </div>
 
-      {showModal && !isReadOnlySchedule && (
+      {showModal && canCreateSchedule && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 max-w-2xl w-full mx-4">
             <div className="flex items-center justify-between mb-6">
@@ -714,6 +983,99 @@ export const Schedules: React.FC = () => {
                   type="button"
                   onClick={() => setShowModal(false)}
                   className="flex-1 bg-gray-200 text-gray-700 py-2 rounded-lg hover:bg-gray-300 transition-colors"
+                >
+                  Hủy
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {replacementForm.schedule && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg p-6 max-w-lg w-full">
+            <div className="mb-6 flex items-center justify-between">
+              <div>
+                <h2 className="text-xl font-bold text-gray-900">
+                  Chọn PT thay thế
+                </h2>
+                <p className="mt-1 text-sm text-gray-500">
+                  Lịch sẽ quay lại trạng thái đang chờ PT mới phê duyệt.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={closeReplacementModal}
+                className="text-gray-500 hover:text-gray-700"
+                aria-label="Đóng"
+              >
+                x
+              </button>
+            </div>
+
+            <form className="space-y-4" onSubmit={submitReplacementTrainer}>
+              <FormField label="PT thay thế">
+                <select
+                  required
+                  value={replacementForm.trainerId}
+                  onChange={(event) =>
+                    setReplacementForm((current) => ({
+                      ...current,
+                      trainerId: event.target.value,
+                    }))
+                  }
+                  className={inputClass}
+                >
+                  <option value="">Chọn PT</option>
+                  {trainers
+                    .filter((trainer) => {
+                      const trainerUserId = getTrainerUserId(trainer);
+                      return (
+                        trainerUserId &&
+                        trainerUserId !== replacementForm.schedule?.trainerId
+                      );
+                    })
+                    .map((trainer) => {
+                      const trainerUserId = getTrainerUserId(trainer);
+                      return (
+                        <option key={trainer.id} value={trainerUserId}>
+                          {getUserName(trainer.user) ||
+                            trainer.userId ||
+                            trainer.id}
+                        </option>
+                      );
+                    })}
+                </select>
+              </FormField>
+
+              <FormField label="Ghi chú">
+                <textarea
+                  value={replacementForm.reason}
+                  onChange={(event) =>
+                    setReplacementForm((current) => ({
+                      ...current,
+                      reason: event.target.value,
+                    }))
+                  }
+                  className={inputClass}
+                  rows={3}
+                  placeholder="Ví dụ: Chọn PT khác vì PT trước bận lịch"
+                />
+              </FormField>
+
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="submit"
+                  disabled={!replacementForm.trainerId}
+                  className="flex-1 rounded-lg bg-blue-600 py-2 text-white hover:bg-blue-700 disabled:bg-blue-300 disabled:cursor-not-allowed"
+                >
+                  Gửi lại yêu cầu
+                </button>
+                <button
+                  type="button"
+                  onClick={closeReplacementModal}
+                  className="flex-1 rounded-lg bg-gray-200 py-2 text-gray-700 hover:bg-gray-300"
                 >
                   Hủy
                 </button>

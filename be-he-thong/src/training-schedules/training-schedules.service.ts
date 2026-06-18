@@ -12,7 +12,48 @@ import { NotificationsService } from '../notifications/notifications.service';
 type SchedulePayload = Partial<CreateTrainingScheduleDto> & {
   status?: string;
   notes?: string;
+  approvalAction?: ScheduleApprovalAction;
+  approvalReason?: string;
 };
+
+type ScheduleStatus =
+  | 'pending'
+  | 'scheduled'
+  | 'completed'
+  | 'cancelled'
+  | 'rejected';
+
+type ScheduleApprovalAction =
+  | 'requested'
+  | 'accepted'
+  | 'rejected'
+  | 'resubmitted'
+  | 'cancelled';
+
+type ScheduleApprovalHistoryEntry = {
+  action: ScheduleApprovalAction;
+  status: ScheduleStatus;
+  trainerId?: number;
+  trainerName?: string;
+  reason?: string;
+  at: string;
+};
+
+const scheduleStatuses: ScheduleStatus[] = [
+  'pending',
+  'scheduled',
+  'completed',
+  'cancelled',
+  'rejected',
+];
+
+const approvalActions: ScheduleApprovalAction[] = [
+  'requested',
+  'accepted',
+  'rejected',
+  'resubmitted',
+  'cancelled',
+];
 
 @Injectable()
 export class TrainingSchedulesService {
@@ -41,6 +82,10 @@ export class TrainingSchedulesService {
       payload.trainerId,
       scheduleType,
     );
+    const initialStatus = this.normalizeScheduleStatus(
+      payload.status,
+      scheduleType === 'pt' && assignment.trainer ? 'pending' : 'scheduled',
+    );
     const schedule = this.schedulesRepository.create({
       member,
       memberPackage: assignment.memberPackage,
@@ -48,8 +93,21 @@ export class TrainingSchedulesService {
       type: scheduleType,
       startTime: payload.startTime ? new Date(payload.startTime) : new Date(),
       endTime: payload.endTime ? new Date(payload.endTime) : new Date(),
-      status: payload.status ?? 'scheduled',
+      status: initialStatus,
       notes: payload.notes,
+      approvalHistory:
+        scheduleType === 'pt' && assignment.trainer
+          ? this.stringifyApprovalHistory([
+              this.createApprovalHistoryEntry(
+                payload.approvalAction === 'resubmitted'
+                  ? 'resubmitted'
+                  : 'requested',
+                initialStatus,
+                assignment.trainer,
+                payload.approvalReason ?? payload.notes,
+              ),
+            ])
+          : undefined,
     });
 
     const savedSchedule = await this.schedulesRepository.save(schedule);
@@ -82,6 +140,7 @@ export class TrainingSchedulesService {
   async update(id: number, updateTrainingScheduleDto: UpdateTrainingScheduleDto) {
     const payload = updateTrainingScheduleDto as SchedulePayload;
     const schedule = await this.findScheduleOrFail(id);
+    const previousTrainerId = schedule.trainer?.id;
 
     if (payload.memberId !== undefined) {
       schedule.member = await this.findMemberOrFail(payload.memberId);
@@ -99,7 +158,9 @@ export class TrainingSchedulesService {
     if (payload.type !== undefined) schedule.type = payload.type;
     if (payload.startTime !== undefined) schedule.startTime = new Date(payload.startTime);
     if (payload.endTime !== undefined) schedule.endTime = new Date(payload.endTime);
-    if (payload.status !== undefined) schedule.status = payload.status;
+    if (payload.status !== undefined) {
+      schedule.status = this.normalizeScheduleStatus(payload.status);
+    }
     if (payload.notes !== undefined) schedule.notes = payload.notes;
 
     if (
@@ -117,6 +178,8 @@ export class TrainingSchedulesService {
       schedule.memberPackage = assignment.memberPackage;
       schedule.trainer = assignment.trainer;
     }
+
+    this.applyApprovalAction(schedule, payload, previousTrainerId);
 
     const savedSchedule = await this.schedulesRepository.save(schedule);
     await this.notifySchedule(savedSchedule, 'updated');
@@ -229,22 +292,23 @@ export class TrainingSchedulesService {
     const ptMemberPackage =
       memberPackage ?? (await this.findActivePtMemberPackage(member?.id));
     const assignedTrainer = ptMemberPackage?.trainer;
+    const requestedTrainer = trainerId
+      ? await this.findUserOrFail(trainerId)
+      : assignedTrainer;
 
-    if (!ptMemberPackage || !assignedTrainer?.id) {
+    if (!ptMemberPackage || !requestedTrainer?.id) {
       throw new BadRequestException(
-        'Hoi vien chua co goi PT dang hoat dong hoac chua duoc phan cong PT',
+        'Hoi vien chua co goi PT dang hoat dong hoac chua chon PT',
       );
     }
 
-    if (trainerId && trainerId !== assignedTrainer.id) {
-      throw new BadRequestException(
-        'Lich PT phai dung voi PT dang phu trach hoi vien',
-      );
+    if (requestedTrainer.role !== 'trainer') {
+      throw new BadRequestException('Nguoi duoc chon khong phai la PT');
     }
 
     return {
       memberPackage: ptMemberPackage,
-      trainer: assignedTrainer,
+      trainer: requestedTrainer,
     };
   }
 
@@ -296,6 +360,116 @@ export class TrainingSchedulesService {
     return typeof date === 'string' ? date : date.toISOString();
   }
 
+  private normalizeScheduleStatus(
+    status?: string,
+    fallback: ScheduleStatus = 'scheduled',
+  ): ScheduleStatus {
+    return scheduleStatuses.includes(status as ScheduleStatus)
+      ? (status as ScheduleStatus)
+      : fallback;
+  }
+
+  private normalizeApprovalAction(action?: string) {
+    return approvalActions.includes(action as ScheduleApprovalAction)
+      ? (action as ScheduleApprovalAction)
+      : undefined;
+  }
+
+  private parseApprovalHistory(value?: string): ScheduleApprovalHistoryEntry[] {
+    if (!value) return [];
+
+    try {
+      const parsed = JSON.parse(value);
+      if (!Array.isArray(parsed)) return [];
+
+      return parsed
+        .filter((item): item is Record<string, unknown> => Boolean(item))
+        .map((item) => {
+          const action = this.normalizeApprovalAction(String(item.action ?? ''));
+          const status = this.normalizeScheduleStatus(String(item.status ?? 'pending'), 'pending');
+          const entry: ScheduleApprovalHistoryEntry = {
+            action: action ?? 'requested',
+            status,
+            at: String(item.at ?? new Date().toISOString()),
+          };
+          if (item.trainerId !== undefined) entry.trainerId = Number(item.trainerId);
+          if (item.trainerName !== undefined) entry.trainerName = String(item.trainerName);
+          if (item.reason !== undefined) entry.reason = String(item.reason);
+          return entry;
+        });
+    } catch {
+      return [];
+    }
+  }
+
+  private stringifyApprovalHistory(history: ScheduleApprovalHistoryEntry[]) {
+    return JSON.stringify(history);
+  }
+
+  private createApprovalHistoryEntry(
+    action: ScheduleApprovalAction,
+    status: ScheduleStatus,
+    trainer?: User,
+    reason?: string,
+  ): ScheduleApprovalHistoryEntry {
+    const entry: ScheduleApprovalHistoryEntry = {
+      action,
+      status,
+      at: new Date().toISOString(),
+    };
+
+    if (trainer?.id !== undefined) entry.trainerId = trainer.id;
+    if (trainer?.fullName) entry.trainerName = trainer.fullName;
+    if (reason?.trim()) entry.reason = reason.trim();
+
+    return entry;
+  }
+
+  private appendApprovalHistory(
+    schedule: TrainingSchedule,
+    entry: ScheduleApprovalHistoryEntry,
+  ) {
+    const history = this.parseApprovalHistory(schedule.approvalHistory);
+    history.push(entry);
+    schedule.approvalHistory = this.stringifyApprovalHistory(history);
+  }
+
+  private applyApprovalAction(
+    schedule: TrainingSchedule,
+    payload: SchedulePayload,
+    previousTrainerId?: number,
+  ) {
+    const explicitAction = this.normalizeApprovalAction(payload.approvalAction);
+    const trainerChanged =
+      payload.trainerId !== undefined && schedule.trainer?.id !== previousTrainerId;
+    const inferredAction =
+      !explicitAction && trainerChanged && schedule.status === 'pending'
+        ? 'resubmitted'
+        : undefined;
+    const action = explicitAction ?? inferredAction;
+
+    if (!action) return;
+
+    const statusByAction: Record<ScheduleApprovalAction, ScheduleStatus> = {
+      requested: 'pending',
+      accepted: 'scheduled',
+      rejected: 'rejected',
+      resubmitted: 'pending',
+      cancelled: 'cancelled',
+    };
+    const status = statusByAction[action];
+    schedule.status = status;
+    this.appendApprovalHistory(
+      schedule,
+      this.createApprovalHistoryEntry(
+        action,
+        status,
+        schedule.trainer,
+        payload.approvalReason ?? payload.notes,
+      ),
+    );
+  }
+
   private toScheduleResponse(schedule: TrainingSchedule) {
     return {
       id: schedule.id,
@@ -316,6 +490,7 @@ export class TrainingSchedulesService {
       endTime: this.toDateTimeString(schedule.endTime),
       status: schedule.status ?? 'scheduled',
       notes: schedule.notes,
+      approvalHistory: this.parseApprovalHistory(schedule.approvalHistory),
     };
   }
 
