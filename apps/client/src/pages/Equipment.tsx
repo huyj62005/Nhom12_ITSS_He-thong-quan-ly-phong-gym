@@ -6,11 +6,13 @@ import {
   AlertTriangle,
   CheckCircle,
   Edit,
+  Search,
   Trash2,
 } from "lucide-react";
 import { Equipment } from "../types";
 
 type EquipmentForm = {
+  equipmentCode: string;
   name: string;
   category: string;
   purchaseDate: string;
@@ -24,6 +26,9 @@ type EquipmentStatusFilter = "all" | Equipment["status"] | "maintenance_due";
 
 type ApiEquipment = {
   id: number | string;
+  equipmentCode?: string;
+  equipment_code?: string;
+  code?: string;
   name?: string;
   category?: string;
   status?: string;
@@ -39,8 +44,10 @@ type ApiEquipment = {
 };
 
 const API_BASE_URL = "http://localhost:3000";
+const defaultEquipmentCategories = ["Cardio", "Strength", "Free Weights"];
 
 const emptyEquipmentForm: EquipmentForm = {
+  equipmentCode: "",
   name: "",
   category: "",
   purchaseDate: "",
@@ -62,6 +69,8 @@ export const EquipmentPage: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [statusFilter, setStatusFilter] =
     useState<EquipmentStatusFilter>("all");
+  const [categoryFilter, setCategoryFilter] = useState("all");
+  const [searchTerm, setSearchTerm] = useState("");
 
   const requestJson = async <T,>(
     path: string,
@@ -92,6 +101,9 @@ export const EquipmentPage: React.FC = () => {
   const mapApiEquipment = (item: ApiEquipment): Equipment => {
     const mappedEquipment: Equipment = {
       id: String(item.id),
+      equipmentCode: String(
+        item.equipmentCode ?? item.equipment_code ?? item.code ?? "",
+      ),
       name: item.name ?? "",
       category: item.category ?? "",
       status: normalizeStatus(item.status),
@@ -126,6 +138,8 @@ export const EquipmentPage: React.FC = () => {
       nextMaintenance?: string;
       purchasePrice: number;
       status: Equipment["status"];
+      equipmentCode?: string;
+      code?: string;
     } = {
       name: item.name,
       category: item.category,
@@ -133,6 +147,11 @@ export const EquipmentPage: React.FC = () => {
       purchasePrice: item.cost,
       status: item.status,
     };
+
+    if (item.equipmentCode !== undefined) {
+      payload.equipmentCode = item.equipmentCode;
+      payload.code = item.equipmentCode;
+    }
 
     if (item.lastMaintenance !== undefined) {
       payload.lastMaintenance = item.lastMaintenance;
@@ -170,6 +189,34 @@ export const EquipmentPage: React.FC = () => {
       style: "currency",
       currency: "VND",
     }).format(amount);
+  };
+
+  const getEquipmentCodePrefix = (category: string) => {
+    const normalized = category
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-zA-Z0-9]/g, "")
+      .toUpperCase();
+
+    return (normalized.slice(0, 2) || "EQ").padEnd(2, "X");
+  };
+
+  const getNextEquipmentCode = (category: string) => {
+    if (!category) return "";
+
+    const prefix = getEquipmentCodePrefix(category);
+    const maxSequence = equipment.reduce((max, item) => {
+      if (action === "edit" && item.id === selectedEquipment?.id) return max;
+
+      const match = item.equipmentCode?.match(
+        new RegExp(`^${prefix}(\\d{3})$`),
+      );
+      if (!match) return max;
+
+      return Math.max(max, Number(match[1]));
+    }, 0);
+
+    return `${prefix}${String(maxSequence + 1).padStart(3, "0")}`;
   };
 
   const isMaintenanceDueSoon = (item: Equipment) => {
@@ -248,6 +295,7 @@ export const EquipmentPage: React.FC = () => {
     setAction("edit");
     setSelectedEquipment(item);
     setEquipmentForm({
+      equipmentCode: item.equipmentCode ?? "",
       name: item.name,
       category: item.category,
       purchaseDate: item.purchaseDate,
@@ -268,6 +316,10 @@ export const EquipmentPage: React.FC = () => {
   const buildEquipmentPayload = (id: string): Equipment => {
     const payload: Equipment = {
       id,
+      equipmentCode:
+        action === "add"
+          ? getNextEquipmentCode(equipmentForm.category.trim())
+          : equipmentForm.equipmentCode.trim(),
       name: equipmentForm.name.trim(),
       category: equipmentForm.category.trim(),
       purchaseDate: equipmentForm.purchaseDate,
@@ -352,10 +404,32 @@ export const EquipmentPage: React.FC = () => {
     (e) => e.status === "maintenance" || isMaintenanceDueSoon(e),
   ).length;
   const brokenCount = equipment.filter((e) => e.status === "broken").length;
+  const categoryOptions = Array.from(
+    new Set(equipment.map((item) => item.category).filter(Boolean)),
+  ).sort((a, b) => a.localeCompare(b));
+  const equipmentCategoryOptions = Array.from(
+    new Set([...defaultEquipmentCategories, ...categoryOptions]),
+  ).sort((a, b) => a.localeCompare(b));
+  const hasActiveFilters =
+    categoryFilter !== "all" ||
+    statusFilter !== "all" ||
+    Boolean(searchTerm.trim());
   const filteredEquipment = equipment.filter((item) => {
-    if (statusFilter === "all") return true;
-    if (statusFilter === "maintenance_due") return isMaintenanceDueSoon(item);
-    return item.status === statusFilter;
+    const matchesCategory =
+      categoryFilter === "all" || item.category === categoryFilter;
+    const matchesStatus =
+      statusFilter === "all"
+        ? true
+        : statusFilter === "maintenance_due"
+          ? isMaintenanceDueSoon(item)
+          : item.status === statusFilter;
+    const normalizedSearch = searchTerm.trim().toLowerCase();
+    const matchesSearch =
+      !normalizedSearch ||
+      item.name.toLowerCase().includes(normalizedSearch) ||
+      (item.equipmentCode ?? "").toLowerCase().includes(normalizedSearch);
+
+    return matchesCategory && matchesStatus && matchesSearch;
   });
 
   return (
@@ -408,43 +482,59 @@ export const EquipmentPage: React.FC = () => {
             <h3 className="text-lg font-bold text-gray-900">
               Danh Sách Thiết Bị
             </h3>
-            <div className="mt-4 flex flex-wrap gap-2">
-              {[
-                { value: "all", label: "Tất cả", count: equipment.length },
-                {
-                  value: "available",
-                  label: "Sẵn sàng",
-                  count: availableCount,
-                },
-                {
-                  value: "maintenance",
-                  label: "Bảo trì",
-                  count: equipment.filter(
-                    (item) => item.status === "maintenance",
-                  ).length,
-                },
-                {
-                  value: "maintenance_due",
-                  label: "Cần bảo trì",
-                  count: equipment.filter(isMaintenanceDueSoon).length,
-                },
-                { value: "broken", label: "Hỏng", count: brokenCount },
-              ].map((filter) => (
+            <div className="mt-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
                 <button
-                  key={filter.value}
                   type="button"
-                  onClick={() =>
-                    setStatusFilter(filter.value as EquipmentStatusFilter)
-                  }
-                  className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                    statusFilter === filter.value
-                      ? "bg-blue-600 text-white"
-                      : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                  }`}
+                  onClick={() => {
+                    setCategoryFilter("all");
+                    setStatusFilter("all");
+                    setSearchTerm("");
+                  }}
+                  disabled={!hasActiveFilters}
+                  className="px-3 py-2 rounded-lg text-sm font-medium bg-gray-100 text-gray-700 hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
-                  {filter.label} ({filter.count})
+                  Xóa bộ lọc
                 </button>
-              ))}
+                <select
+                  value={categoryFilter}
+                  onChange={(event) => setCategoryFilter(event.target.value)}
+                  className="min-w-[190px] px-3 py-2 border border-gray-300 rounded-lg bg-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="all">Tất cả danh mục</option>
+                  {categoryOptions.map((category) => (
+                    <option key={category} value={category}>
+                      {category}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  value={statusFilter}
+                  onChange={(event) =>
+                    setStatusFilter(event.target.value as EquipmentStatusFilter)
+                  }
+                  className="min-w-[190px] px-3 py-2 border border-gray-300 rounded-lg bg-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="all">Tất cả trạng thái</option>
+                  <option value="available">Sẵn sàng</option>
+                  <option value="maintenance">Bảo trì</option>
+                  <option value="maintenance_due">Cần bảo trì</option>
+                  <option value="broken">Hỏng</option>
+                </select>
+              </div>
+              <div className="relative w-full lg:max-w-sm">
+                <Search
+                  className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+                  size={18}
+                />
+                <input
+                  type="search"
+                  value={searchTerm}
+                  onChange={(event) => setSearchTerm(event.target.value)}
+                  placeholder="Tìm theo tên hoặc mã số máy..."
+                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
             </div>
           </div>
 
@@ -452,6 +542,9 @@ export const EquipmentPage: React.FC = () => {
             <table className="w-full">
               <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                    Mã Số Máy
+                  </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
                     Tên Thiết Bị
                   </th>
@@ -481,6 +574,9 @@ export const EquipmentPage: React.FC = () => {
               <tbody className="bg-white divide-y divide-gray-200">
                 {filteredEquipment.map((item) => (
                   <tr key={item.id} className="hover:bg-gray-50">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-gray-900">
+                      {item.equipmentCode || "-"}
+                    </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex items-center gap-3">
                         {getStatusIcon(item)}
@@ -547,7 +643,7 @@ export const EquipmentPage: React.FC = () => {
                 {filteredEquipment.length === 0 && (
                   <tr>
                     <td
-                      colSpan={8}
+                      colSpan={9}
                       className="px-6 py-8 text-center text-sm text-gray-500"
                     >
                       Không có thiết bị phù hợp với trạng thái đã chọn.
@@ -570,6 +666,26 @@ export const EquipmentPage: React.FC = () => {
             </div>
 
             <form className="p-6 space-y-4" onSubmit={handleSubmit}>
+              <div>
+                <label
+                  htmlFor="equipment-code"
+                  className="block text-sm font-medium text-gray-700 mb-1"
+                >
+                  Mã số máy
+                </label>
+                <input
+                  id="equipment-code"
+                  type="text"
+                  value={
+                    equipmentForm.equipmentCode ||
+                    getNextEquipmentCode(equipmentForm.category)
+                  }
+                  readOnly
+                  placeholder="Tự động sinh sau khi chọn danh mục"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 text-gray-700 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                />
+              </div>
+
               <div>
                 <label
                   htmlFor="equipment-name"
@@ -607,15 +723,21 @@ export const EquipmentPage: React.FC = () => {
                       setEquipmentForm((prev) => ({
                         ...prev,
                         category: event.target.value,
+                        equipmentCode:
+                          action === "add"
+                            ? getNextEquipmentCode(event.target.value)
+                            : "",
                       }))
                     }
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     required
                   >
                     <option value="">Chọn danh mục</option>
-                    <option value="Cardio">Cardio</option>
-                    <option value="Strength">Strength</option>
-                    <option value="Free Weights">Free Weights</option>
+                    {equipmentCategoryOptions.map((category) => (
+                      <option key={category} value={category}>
+                        {category}
+                      </option>
+                    ))}
                   </select>
                 </div>
 

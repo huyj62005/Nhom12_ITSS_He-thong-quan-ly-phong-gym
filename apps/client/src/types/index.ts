@@ -1,5 +1,5 @@
 // User and Authentication Types
-export type UserRole = "admin" | "manager" | "cashier" | "trainer" | "member";
+export type UserRole = "owner" | "manager" | "trainer" | "member";
 
 export interface User {
   id: string;
@@ -132,6 +132,7 @@ export interface Exercise {
 // Equipment Types
 export interface Equipment {
   id: string;
+  equipmentCode?: string;
   name: string;
   category: string;
   status: "available" | "maintenance" | "broken";

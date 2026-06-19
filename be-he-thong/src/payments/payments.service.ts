@@ -348,7 +348,7 @@ export class PaymentsService {
     const packageName = this.getPackageName(payment.memberPackage);
 
     await this.notificationsService.createForRoles(
-      [UserRole.ADMIN, UserRole.MANAGER, UserRole.CASHIER],
+      [UserRole.OWNER, UserRole.MANAGER],
       {
         title: 'Đăng ký gói tập mới',
         message: `${memberName} vừa đăng ký ${packageName}.`,

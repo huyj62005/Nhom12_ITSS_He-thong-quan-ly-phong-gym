@@ -17,6 +17,14 @@ export class Equipment {
     name?: string;
 
     @Column({
+        name: 'equipment_code',
+        nullable: true,
+        unique: true,
+        length: 20,
+    })
+    equipmentCode?: string;
+
+    @Column({
         nullable: true,
         length: 100,
     })

@@ -32,13 +32,14 @@ export class UsersService {
 
   async login(email: string, password: string) {
     const normalizedEmail = email.trim().toLowerCase();
+    const normalizedPassword = password.trim();
     const user = await this.usersRepository.findOne({
       where: {
         email: normalizedEmail,
       },
     });
 
-    if (!user || user.password !== password) {
+    if (!user || user.password !== normalizedPassword) {
       throw new UnauthorizedException('Email or password is incorrect');
     }
 

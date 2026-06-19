@@ -32,6 +32,9 @@ export class EquipmentsService {
   async create(createEquipmentDto: CreateEquipmentDto) {
     try {
       const payload = this.buildEquipmentEntity(createEquipmentDto);
+      payload.equipmentCode =
+        payload.equipmentCode ??
+        (await this.generateEquipmentCode(payload.category ?? ''));
       const equipment = this.equipmentsRepository.create(payload);
       const savedEquipment = await this.equipmentsRepository.save(equipment);
       await this.notifyEquipmentAttention(savedEquipment);
@@ -68,6 +71,16 @@ export class EquipmentsService {
         true,
         equipment,
       );
+      if (
+        updates.category &&
+        updates.category !== equipment.category &&
+        !updates.equipmentCode
+      ) {
+        updates.equipmentCode = await this.generateEquipmentCode(
+          updates.category,
+          equipment.id,
+        );
+      }
       Object.assign(equipment, updates);
 
       const savedEquipment = await this.equipmentsRepository.save(equipment);
@@ -128,6 +141,15 @@ export class EquipmentsService {
       equipment.name = name;
     } else if (!isUpdate) {
       throw new BadRequestException('Equipment name is required');
+    }
+
+    const equipmentCode = dto.equipmentCode ?? dto.code;
+    if (equipmentCode !== undefined) {
+      const normalizedCode = equipmentCode.trim().toUpperCase();
+      if (normalizedCode.length > 20) {
+        throw new BadRequestException('Equipment code must be at most 20 characters');
+      }
+      equipment.equipmentCode = normalizedCode || undefined;
     }
 
     if (dto.category !== undefined) {
@@ -264,6 +286,42 @@ export class EquipmentsService {
     return equipment;
   }
 
+  private async generateEquipmentCode(category: string, excludeId?: number) {
+    const prefix = this.getEquipmentCodePrefix(category);
+    const query = this.equipmentsRepository
+      .createQueryBuilder('equipment')
+      .select('equipment.equipmentCode', 'equipmentCode')
+      .where('equipment.equipmentCode LIKE :pattern', {
+        pattern: `${prefix}%`,
+      });
+
+    if (excludeId) {
+      query.andWhere('equipment.id != :excludeId', { excludeId });
+    }
+
+    const rows = await query.getRawMany<{ equipmentCode?: string }>();
+    const maxSequence = rows.reduce((max, row) => {
+      const match = row.equipmentCode?.match(
+        new RegExp(`^${prefix}(\\d{3})$`),
+      );
+      if (!match) return max;
+
+      return Math.max(max, Number(match[1]));
+    }, 0);
+
+    return `${prefix}${String(maxSequence + 1).padStart(3, '0')}`;
+  }
+
+  private getEquipmentCodePrefix(category: string) {
+    const normalized = category
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-zA-Z0-9]/g, '')
+      .toUpperCase();
+
+    return (normalized.slice(0, 2) || 'EQ').padEnd(2, 'X');
+  }
+
   private async markOverdueMaintenance() {
     const today = this.toDateString(this.today());
     const result = await this.equipmentsRepository.update(
@@ -357,6 +415,8 @@ export class EquipmentsService {
 
     return {
       id: equipment.id,
+      equipmentCode: equipment.equipmentCode ?? '',
+      code: equipment.equipmentCode ?? '',
       name: equipment.name ?? '',
       category: equipment.category ?? '',
       quantity: equipment.quantity ?? 1,
@@ -400,7 +460,7 @@ export class EquipmentsService {
           : 'sắp đến hạn bảo trì';
 
     await this.notificationsService.createForRoles(
-      [UserRole.ADMIN, UserRole.MANAGER],
+      [UserRole.OWNER],
       {
         title: 'Thiết bị cần chú ý',
         message: `${equipment.name ?? 'Thiết bị'} ${statusText}.`,

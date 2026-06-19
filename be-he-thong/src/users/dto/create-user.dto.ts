@@ -7,9 +7,8 @@ import {
 } from 'class-validator';
 
 export enum UserRole {
-    ADMIN = 'admin',
+    OWNER = 'owner',
     MANAGER = 'manager',
-    CASHIER = 'cashier',
     TRAINER = 'trainer',
     MEMBER = 'member',
 }

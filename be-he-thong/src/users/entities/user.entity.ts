@@ -10,9 +10,8 @@ import { Member } from '../../members/entities/member.entity';
 import { TrainerProfile } from '../../trainer-profiles/entities/trainer-profile.entity';
 import { Notification } from '../../notifications/entities/notification.entity';
 export enum UserRole {
-    ADMIN = 'admin',
+    OWNER = 'owner',
     MANAGER = 'manager',
-    CASHIER = 'cashier',
     TRAINER = 'trainer',
     MEMBER = 'member',
 }

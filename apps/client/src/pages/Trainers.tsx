@@ -167,7 +167,7 @@ const inputClass =
 
 export const Trainers: React.FC = () => {
   const { user } = useAuth();
-  const isCashier = user?.role === "cashier";
+  const isManager = user?.role === "manager";
   const [staff, setStaff] = useState<StaffMember[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [staffFilter, setStaffFilter] = useState<StaffFilter>("all");
@@ -219,7 +219,7 @@ export const Trainers: React.FC = () => {
   };
 
   const openEditModal = (item: StaffMember) => {
-    if (isCashier && item.staffType !== "trainer") return;
+    if (isManager && item.staffType !== "trainer") return;
     setEditingStaff(item);
     setFormData({
       name: item.name,
@@ -270,7 +270,7 @@ export const Trainers: React.FC = () => {
       `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(
         formData.name || "staff",
       )}`;
-    const staffType: StaffType = isCashier ? "trainer" : formData.staffType;
+    const staffType: StaffType = isManager ? "trainer" : formData.staffType;
 
     try {
       if (editingStaff) {
@@ -321,7 +321,7 @@ export const Trainers: React.FC = () => {
 
   const confirmDelete = async () => {
     if (!deleteStaff) return;
-    if (isCashier && deleteStaff.staffType !== "trainer") {
+    if (isManager && deleteStaff.staffType !== "trainer") {
       setDeleteStaff(null);
       return;
     }
@@ -413,7 +413,7 @@ export const Trainers: React.FC = () => {
                     </div>
                   </div>
                   <div className="flex gap-2 flex-shrink-0">
-                    {(!isCashier || item.staffType === "trainer") && (
+                    {(!isManager || item.staffType === "trainer") && (
                       <>
                         <button
                           onClick={() => openEditModal(item)}
@@ -629,15 +629,15 @@ export const Trainers: React.FC = () => {
                     onChange={(event) =>
                       setFormData((current) => ({
                         ...current,
-                        staffType: isCashier
+                        staffType: isManager
                           ? "trainer"
                           : (event.target.value as StaffType),
                       }))
                     }
-                    disabled={isCashier}
+                    disabled={isManager}
                     className={inputClass}
                   >
-                    {!isCashier && (
+                    {!isManager && (
                       <option value="manager">Nhân viên quản lý</option>
                     )}
                     <option value="trainer">PT/HLV</option>

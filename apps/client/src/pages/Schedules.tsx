@@ -265,7 +265,7 @@ const mapApiSchedule = (schedule: ApiSchedule): Schedule => {
 export const Schedules: React.FC = () => {
   const { user } = useAuth();
   const { members } = useGymData();
-  const isManager = user?.role === "manager";
+  const isOwner = user?.role === "owner";
   const isTrainer = user?.role === "trainer";
   const isMember = user?.role === "member";
   const canCreateSchedule = !isManager && !isTrainer;

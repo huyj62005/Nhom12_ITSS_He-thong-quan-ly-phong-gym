@@ -41,7 +41,7 @@ export class FeedbacksService {
 
     const savedFeedback = await this.feedbacksRepository.save(feedback);
     await this.notificationsService.createForRoles(
-      [UserRole.ADMIN, UserRole.MANAGER],
+      [UserRole.OWNER],
       {
         title: 'Phản hồi mới',
         message: `${savedFeedback.member?.fullName ?? 'Hội viên'} vừa gửi phản hồi ${savedFeedback.title ? `về ${savedFeedback.title}` : 'mới'}.`,

@@ -20,6 +20,14 @@ export class CreateEquipmentDto {
 
     @IsOptional()
     @IsString()
+    equipmentCode?: string;
+
+    @IsOptional()
+    @IsString()
+    code?: string;
+
+    @IsOptional()
+    @IsString()
     category?: string;
 
     @IsOptional()

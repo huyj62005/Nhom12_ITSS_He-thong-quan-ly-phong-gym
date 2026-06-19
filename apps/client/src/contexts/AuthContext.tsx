@@ -9,6 +9,20 @@ type ApiUser = Partial<User> & {
   full_name?: string;
 };
 
+const normalizeApiRole = (role?: string): User["role"] => {
+  if (role === "cashier") return "manager";
+  if (
+    role === "owner" ||
+    role === "manager" ||
+    role === "trainer" ||
+    role === "member"
+  ) {
+    return role;
+  }
+
+  return "member";
+};
+
 const requestJson = async <T,>(path: string, options?: RequestInit): Promise<T> => {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...options,
@@ -30,7 +44,7 @@ const mapApiUser = (apiUser: ApiUser): User => ({
   id: String(apiUser.id ?? ""),
   email: apiUser.email ?? "",
   name: apiUser.name ?? apiUser.fullName ?? apiUser.full_name ?? "",
-  role: apiUser.role ?? "member",
+  role: normalizeApiRole(apiUser.role),
   avatar:
     apiUser.avatar ??
     `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(
@@ -47,7 +61,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   useEffect(() => {
     const storedUser = localStorage.getItem("gym_user");
     if (storedUser) {
-      setUser(JSON.parse(storedUser));
+      const parsedUser = JSON.parse(storedUser) as User;
+      const normalizedUser = {
+        ...parsedUser,
+        role: normalizeApiRole(parsedUser.role),
+      };
+      setUser(normalizedUser);
+      localStorage.setItem("gym_user", JSON.stringify(normalizedUser));
     }
   }, []);
 

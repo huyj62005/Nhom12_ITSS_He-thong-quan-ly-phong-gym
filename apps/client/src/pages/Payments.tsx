@@ -231,7 +231,7 @@ export const Payments: React.FC = () => {
   const failedPaymentCount = payments.filter(
     (p) => p.status === "failed",
   ).length;
-  const canApprovePayment = user?.role === "admin" || user?.role === "manager";
+  const canApprovePayment = user?.role === "owner";
 
   const selectMember = (member: Member) => {
     setSelectedMember(member);

@@ -25,31 +25,31 @@ const navItems: NavItem[] = [
     path: "/members",
     label: "Quản Lý Hội Viên",
     icon: <Users size={20} />,
-    roles: ["admin", "manager", "cashier"],
+    roles: ["owner", "manager"],
   },
   {
     path: "/packages",
     label: "Gói Tập",
     icon: <Package size={20} />,
-    roles: ["admin", "manager", "cashier", "member"],
+    roles: ["owner", "manager", "member"],
   },
   {
     path: "/payments",
     label: "Thanh Toán",
     icon: <CreditCard size={20} />,
-    roles: ["admin", "manager", "cashier"],
+    roles: ["owner", "manager"],
   },
   {
     path: "/schedules",
     label: "Lịch Tập",
     icon: <Calendar size={20} />,
-    roles: ["admin", "manager", "cashier", "trainer", "member"],
+    roles: ["owner", "manager", "trainer", "member"],
   },
   {
     path: "/trainers",
     label: "Quản Lý Nhân Sự",
     icon: <Users size={20} />,
-    roles: ["admin", "manager", "cashier"],
+    roles: ["owner", "manager"],
   },
   {
     path: "/progress",
@@ -61,21 +61,36 @@ const navItems: NavItem[] = [
     path: "/equipment",
     label: "Thiết Bị",
     icon: <ClipboardList size={20} />,
-    roles: ["admin", "manager", "cashier"],
+    roles: ["owner", "manager"],
   },
   {
     path: "/feedback",
     label: "Phản Hồi",
     icon: <MessageSquare size={20} />,
-    roles: ["admin", "manager", "cashier", "member"],
+    roles: ["owner", "manager", "member"],
   },
   {
     path: "/reports",
     label: "Báo Cáo",
     icon: <TrendingUp size={20} />,
-    roles: ["admin", "manager", "cashier"],
+    roles: ["owner", "manager"],
   },
 ];
+
+const getRoleLabel = (role?: string) => {
+  switch (role) {
+    case "owner":
+      return "Owner";
+    case "manager":
+      return "Manager";
+    case "trainer":
+      return "PT/HLV";
+    case "member":
+      return "Hội viên";
+    default:
+      return role ?? "";
+  }
+};
 
 export const Sidebar: React.FC = () => {
   const location = useLocation();
@@ -148,7 +163,7 @@ export const Sidebar: React.FC = () => {
           />
           <div className="flex-1 min-w-0">
             <p className="font-medium text-sm truncate">{user?.name}</p>
-            <p className="text-xs text-gray-500 capitalize">{user?.role}</p>
+            <p className="text-xs text-gray-500">{getRoleLabel(user?.role)}</p>
           </div>
         </div>
       </div>

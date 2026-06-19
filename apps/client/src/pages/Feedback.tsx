@@ -164,7 +164,7 @@ export const FeedbackPage: React.FC = () => {
   }, []);
 
   // Member chỉ nhìn thấy phản hồi của chính họ
-  // Admin/Manager nhìn thấy tất cả
+    // Owner/Manager nhìn thấy tất cả
   const filteredFeedbacks = feedbacks.filter((fb) => {
     const matchesStatus = filterStatus === 'all' || fb.status === filterStatus;
 
@@ -172,7 +172,7 @@ export const FeedbackPage: React.FC = () => {
       return matchesStatus && fb.memberId === currentMember?.id;
     }
 
-    // Admin và Manager nhìn thấy tất cả
+    // Owner và Manager nhìn thấy tất cả
     return matchesStatus;
   });
 
