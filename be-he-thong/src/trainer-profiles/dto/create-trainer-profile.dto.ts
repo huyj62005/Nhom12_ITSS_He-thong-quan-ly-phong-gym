@@ -1,29 +1,27 @@
-import {
-    IsInt,
-    IsOptional,
-    IsString,
-    Max,
-    Min,
-} from 'class-validator';
+import { IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
 
 export class CreateTrainerProfileDto {
-    @IsInt()
-    userId!: number;
+  @IsInt()
+  userId!: number;
 
-    @IsOptional()
-    @IsString()
-    bio?: string;
+  @IsOptional()
+  @IsInt()
+  gymRoomId?: number;
 
-    @IsOptional()
-    @Min(0)
-    experienceYears?: number;
+  @IsOptional()
+  @IsString()
+  bio?: string;
 
-    @IsOptional()
-    @Min(0)
-    @Max(5)
-    rating?: number;
+  @IsOptional()
+  @Min(0)
+  experienceYears?: number;
 
-    @IsOptional()
-    @IsString()
-    specialties?: string;
+  @IsOptional()
+  @Min(0)
+  @Max(5)
+  rating?: number;
+
+  @IsOptional()
+  @IsString()
+  specialties?: string;
 }

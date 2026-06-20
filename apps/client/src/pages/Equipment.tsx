@@ -20,6 +20,7 @@ type EquipmentForm = {
   nextMaintenance: string;
   price: string;
   status: Equipment["status"];
+  gymRoomId: string;
 };
 
 type EquipmentStatusFilter = "all" | Equipment["status"] | "maintenance_due";
@@ -41,6 +42,18 @@ type ApiEquipment = {
   purchasePrice?: number | string;
   needsMaintenanceSoon?: boolean;
   maintenanceState?: Equipment["maintenanceState"];
+  gymRoomId?: number | string;
+  facilityId?: number | string;
+  gymRoomCode?: string;
+  gymRoomName?: string;
+  gymRoomDisplayName?: string;
+};
+
+type BranchOption = {
+  id: string;
+  code: string;
+  name: string;
+  displayName: string;
 };
 
 const API_BASE_URL = "http://localhost:3000";
@@ -55,6 +68,7 @@ const emptyEquipmentForm: EquipmentForm = {
   nextMaintenance: "",
   price: "",
   status: "available",
+  gymRoomId: "",
 };
 
 export const EquipmentPage: React.FC = () => {
@@ -70,7 +84,9 @@ export const EquipmentPage: React.FC = () => {
   const [statusFilter, setStatusFilter] =
     useState<EquipmentStatusFilter>("all");
   const [categoryFilter, setCategoryFilter] = useState("all");
+  const [branchFilter, setBranchFilter] = useState("all");
   const [searchTerm, setSearchTerm] = useState("");
+  const [branches, setBranches] = useState<BranchOption[]>([]);
 
   const requestJson = async <T,>(
     path: string,
@@ -109,6 +125,10 @@ export const EquipmentPage: React.FC = () => {
       status: normalizeStatus(item.status),
       purchaseDate: item.purchaseDate ?? "",
       cost: Number(item.cost ?? item.purchasePrice ?? 0),
+      gymRoomId: String(item.gymRoomId ?? item.facilityId ?? ""),
+      gymRoomCode: item.gymRoomCode ?? "",
+      gymRoomName: item.gymRoomName ?? "",
+      gymRoomDisplayName: item.gymRoomDisplayName ?? "",
     };
     const lastMaintenance = item.lastMaintenance ?? item.lastMaintenanceDate;
     const nextMaintenance = item.nextMaintenance ?? item.nextMaintenanceDate;
@@ -140,12 +160,20 @@ export const EquipmentPage: React.FC = () => {
       status: Equipment["status"];
       equipmentCode?: string;
       code?: string;
+      gymRoomId?: number;
+      facilityId?: number;
     } = {
       name: item.name,
       category: item.category,
       purchaseDate: item.purchaseDate,
       purchasePrice: item.cost,
       status: item.status,
+      ...(item.gymRoomId
+        ? {
+            gymRoomId: Number(item.gymRoomId),
+            facilityId: Number(item.gymRoomId),
+          }
+        : {}),
     };
 
     if (item.equipmentCode !== undefined) {
@@ -166,10 +194,35 @@ export const EquipmentPage: React.FC = () => {
   useEffect(() => {
     let isMounted = true;
 
-    requestJson<unknown>("/equipments")
-      .then((apiEquipment) => {
+    Promise.allSettled([
+      requestJson<unknown>("/equipments"),
+      requestJson<unknown>("/gym-branches"),
+    ])
+      .then(([equipmentResult, branchResult]) => {
         if (isMounted) {
-          setEquipment(Array.isArray(apiEquipment) ? apiEquipment.map(mapApiEquipment) : []);
+          const apiEquipment =
+            equipmentResult.status === "fulfilled" ? equipmentResult.value : [];
+          setEquipment(
+            Array.isArray(apiEquipment)
+              ? apiEquipment.map(mapApiEquipment)
+              : [],
+          );
+          const apiBranches =
+            branchResult.status === "fulfilled" ? branchResult.value : [];
+          setBranches(
+            Array.isArray(apiBranches)
+              ? apiBranches
+                  .map((branch: any) => ({
+                    id: String(branch.id ?? ""),
+                    code: branch.code ?? "",
+                    name: branch.name ?? "",
+                    displayName: branch.code
+                      ? `${branch.code} - ${branch.name ?? ""}`
+                      : (branch.name ?? ""),
+                  }))
+                  .filter((branch) => branch.id && branch.code)
+              : [],
+          );
         }
       })
       .catch((error) => {
@@ -303,6 +356,7 @@ export const EquipmentPage: React.FC = () => {
       nextMaintenance: item.nextMaintenance ?? "",
       price: String(item.cost),
       status: item.status,
+      gymRoomId: item.gymRoomId ?? "",
     });
     setShowModal(true);
   };
@@ -325,6 +379,7 @@ export const EquipmentPage: React.FC = () => {
       purchaseDate: equipmentForm.purchaseDate,
       cost: Number(equipmentForm.price),
       status: equipmentForm.status,
+      gymRoomId: equipmentForm.gymRoomId,
     };
 
     if (equipmentForm.lastMaintenance) {
@@ -340,6 +395,10 @@ export const EquipmentPage: React.FC = () => {
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (!equipmentForm.gymRoomId) {
+      window.alert("Vui lòng chọn cơ sở cho thiết bị!");
+      return;
+    }
     setIsSubmitting(true);
 
     try {
@@ -413,6 +472,7 @@ export const EquipmentPage: React.FC = () => {
   const hasActiveFilters =
     categoryFilter !== "all" ||
     statusFilter !== "all" ||
+    branchFilter !== "all" ||
     Boolean(searchTerm.trim());
   const filteredEquipment = equipment.filter((item) => {
     const matchesCategory =
@@ -423,13 +483,15 @@ export const EquipmentPage: React.FC = () => {
         : statusFilter === "maintenance_due"
           ? isMaintenanceDueSoon(item)
           : item.status === statusFilter;
+    const matchesBranch =
+      branchFilter === "all" || item.gymRoomId === branchFilter;
     const normalizedSearch = searchTerm.trim().toLowerCase();
     const matchesSearch =
       !normalizedSearch ||
       item.name.toLowerCase().includes(normalizedSearch) ||
       (item.equipmentCode ?? "").toLowerCase().includes(normalizedSearch);
 
-    return matchesCategory && matchesStatus && matchesSearch;
+    return matchesCategory && matchesStatus && matchesBranch && matchesSearch;
   });
 
   return (
@@ -489,6 +551,7 @@ export const EquipmentPage: React.FC = () => {
                   onClick={() => {
                     setCategoryFilter("all");
                     setStatusFilter("all");
+                    setBranchFilter("all");
                     setSearchTerm("");
                   }}
                   disabled={!hasActiveFilters}
@@ -496,6 +559,18 @@ export const EquipmentPage: React.FC = () => {
                 >
                   Xóa bộ lọc
                 </button>
+                <select
+                  value={branchFilter}
+                  onChange={(event) => setBranchFilter(event.target.value)}
+                  className="min-w-[190px] px-3 py-2 border border-gray-300 rounded-lg bg-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="all">Tất cả cơ sở</option>
+                  {branches.map((branch) => (
+                    <option key={branch.id} value={branch.id}>
+                      {branch.displayName}
+                    </option>
+                  ))}
+                </select>
                 <select
                   value={categoryFilter}
                   onChange={(event) => setCategoryFilter(event.target.value)}
@@ -549,6 +624,9 @@ export const EquipmentPage: React.FC = () => {
                     Tên Thiết Bị
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                    Cơ sở
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
                     Danh Mục
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
@@ -585,6 +663,9 @@ export const EquipmentPage: React.FC = () => {
                         </span>
                       </div>
                     </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-blue-700">
+                      {item.gymRoomCode || "-"}
+                    </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                       {item.category}
                     </td>
@@ -593,7 +674,10 @@ export const EquipmentPage: React.FC = () => {
                         className={`inline-flex items-center gap-1 px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(item)}`}
                       >
                         {isMaintenanceDueSoon(item) && (
-                          <AlertTriangle size={12} className="text-yellow-600" />
+                          <AlertTriangle
+                            size={12}
+                            className="text-yellow-600"
+                          />
                         )}
                         {getStatusText(item)}
                       </span>
@@ -643,7 +727,7 @@ export const EquipmentPage: React.FC = () => {
                 {filteredEquipment.length === 0 && (
                   <tr>
                     <td
-                      colSpan={9}
+                      colSpan={10}
                       className="px-6 py-8 text-center text-sm text-gray-500"
                     >
                       Không có thiết bị phù hợp với trạng thái đã chọn.
@@ -762,6 +846,34 @@ export const EquipmentPage: React.FC = () => {
                     <option value="available">Sẵn sàng</option>
                     <option value="maintenance">Bảo trì</option>
                     <option value="broken">Hỏng</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="equipment-branch"
+                    className="block text-sm font-medium text-gray-700 mb-1"
+                  >
+                    Cơ sở
+                  </label>
+                  <select
+                    id="equipment-branch"
+                    value={equipmentForm.gymRoomId}
+                    onChange={(event) =>
+                      setEquipmentForm((prev) => ({
+                        ...prev,
+                        gymRoomId: event.target.value,
+                      }))
+                    }
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    required
+                  >
+                    <option value="">Chọn cơ sở</option>
+                    {branches.map((branch) => (
+                      <option key={branch.id} value={branch.id}>
+                        {branch.displayName}
+                      </option>
+                    ))}
                   </select>
                 </div>
               </div>

@@ -1,41 +1,47 @@
 import {
-    Entity,
-    PrimaryGeneratedColumn,
-    Column,
-    OneToOne,
-    JoinColumn,
+  Entity,
+  PrimaryGeneratedColumn,
+  Column,
+  OneToOne,
+  ManyToOne,
+  JoinColumn,
 } from 'typeorm';
 import { User } from '../../users/entities/user.entity';
+import { GymRoom } from '../../gym-rooms/entities/gym-room.entity';
 
 @Entity('trainer_profiles')
 export class TrainerProfile {
-    @PrimaryGeneratedColumn()
-    id!: number;
+  @PrimaryGeneratedColumn()
+  id!: number;
 
-    @OneToOne(() => User)
-    @JoinColumn({ name: 'user_id' })
-    user?: User;
+  @OneToOne(() => User)
+  @JoinColumn({ name: 'user_id' })
+  user?: User;
 
-    @Column('text', { nullable: true })
-    bio?: string;
+  @ManyToOne(() => GymRoom, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'gym_room_id' })
+  gymRoom?: GymRoom | null;
 
-    @Column({
-        name: 'experience_years',
-        default: 0,
-    })
-    experienceYears?: number;
+  @Column('text', { nullable: true })
+  bio?: string;
 
-    @Column({
-        type: 'decimal',
-        precision: 2,
-        scale: 1,
-        default: 0,
-    })
-    rating?: number;
+  @Column({
+    name: 'experience_years',
+    default: 0,
+  })
+  experienceYears?: number;
 
-    @Column('text', { nullable: true })
-    specialties?: string;
+  @Column({
+    type: 'decimal',
+    precision: 2,
+    scale: 1,
+    default: 0,
+  })
+  rating?: number;
 
-    @Column()
-    status?: string;
+  @Column('text', { nullable: true })
+  specialties?: string;
+
+  @Column()
+  status?: string;
 }

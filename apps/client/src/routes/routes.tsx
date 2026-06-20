@@ -7,6 +7,7 @@ import { Payments } from "../pages/Payments";
 import { Schedules } from "../pages/Schedules";
 import { Trainers } from "../pages/Trainers";
 import { EquipmentPage } from "../pages/Equipment";
+import { GymRooms } from "../pages/GymRooms";
 import { FeedbackPage } from "../pages/Feedback";
 import { Reports } from "../pages/Reports";
 import { Progress } from "../pages/Progress";
@@ -70,9 +71,7 @@ export const router = createBrowserRouter([
   {
     path: "/schedules",
     element: (
-      <ProtectedRoute
-        allowedRoles={["owner", "manager", "trainer", "member"]}
-      >
+      <ProtectedRoute allowedRoles={["owner", "manager", "trainer", "member"]}>
         <Schedules />
       </ProtectedRoute>
     ),
@@ -82,6 +81,14 @@ export const router = createBrowserRouter([
     element: (
       <ProtectedRoute allowedRoles={["owner", "manager"]}>
         <Trainers />
+      </ProtectedRoute>
+    ),
+  },
+  {
+    path: "/gym-rooms",
+    element: (
+      <ProtectedRoute allowedRoles={["owner", "manager"]}>
+        <GymRooms />
       </ProtectedRoute>
     ),
   },

@@ -9,6 +9,8 @@ import { CreateMemberDto } from './dto/create-member.dto';
 import { UpdateMemberDto } from './dto/update-member.dto';
 import { Member } from './entities/member.entity';
 import { User, UserRole, UserStatus } from '../users/entities/user.entity';
+import { GymRoom } from '../gym-rooms/entities/gym-room.entity';
+import { GymRoomsService } from '../gym-rooms/gym-rooms.service';
 
 type MemberPayload = Partial<CreateMemberDto> & {
   email?: string;
@@ -19,6 +21,8 @@ type MemberPayload = Partial<CreateMemberDto> & {
   avatarUrl?: string;
   status?: string;
   membershipStatus?: string;
+  gymRoomId?: number | string | null;
+  facilityId?: number | string | null;
 };
 
 @Injectable()
@@ -28,6 +32,9 @@ export class MembersService {
     private readonly membersRepository: Repository<Member>,
     @InjectRepository(User)
     private readonly usersRepository: Repository<User>,
+    @InjectRepository(GymRoom)
+    private readonly gymRoomsRepository: Repository<GymRoom>,
+    private readonly gymRoomsService: GymRoomsService,
   ) {}
 
   async create(createMemberDto: CreateMemberDto) {
@@ -38,10 +45,12 @@ export class MembersService {
     const manager = payload.managedBy
       ? await this.findUserOrFail(payload.managedBy)
       : undefined;
+    const gymRoom = await this.resolveGymRoomForCreate(payload);
 
     const member = this.membersRepository.create({
       user,
       manager,
+      gymRoom,
       fullName: payload.fullName ?? payload.name ?? user.fullName ?? '',
       phone: payload.phone ?? user.phone,
       dateOfBirth: payload.dateOfBirth
@@ -59,10 +68,12 @@ export class MembersService {
   }
 
   async findAll() {
+    await this.gymRoomsService.ensureDefaultAndSyncBranchAssignments();
     const members = await this.membersRepository.find({
       relations: {
         user: true,
         manager: true,
+        gymRoom: true,
         memberPackages: {
           package: true,
           trainer: true,
@@ -92,6 +103,12 @@ export class MembersService {
       member.manager = payload.managedBy
         ? await this.findUserOrFail(payload.managedBy)
         : undefined;
+    }
+
+    if (payload.gymRoomId !== undefined || payload.facilityId !== undefined) {
+      member.gymRoom = await this.findGymRoomOrFail(
+        payload.gymRoomId ?? payload.facilityId,
+      );
     }
 
     if (payload.fullName !== undefined || payload.name !== undefined) {
@@ -174,6 +191,7 @@ export class MembersService {
       relations: {
         user: true,
         manager: true,
+        gymRoom: true,
         memberPackages: {
           package: true,
           trainer: true,
@@ -204,6 +222,64 @@ export class MembersService {
     }
 
     return user;
+  }
+
+  private async findGymRoomOrFail(id?: number | string | null) {
+    const gymRoomId = Number(id);
+    if (!Number.isInteger(gymRoomId) || gymRoomId <= 0) {
+      throw new BadRequestException('Gym room id is invalid');
+    }
+
+    const gymRoom = await this.gymRoomsRepository.findOne({
+      where: {
+        id: gymRoomId,
+      },
+    });
+
+    if (!gymRoom) {
+      throw new NotFoundException('Gym room not found');
+    }
+
+    if (gymRoom.status !== 'active') {
+      throw new BadRequestException('Gym room is inactive');
+    }
+
+    return gymRoom;
+  }
+
+  private async resolveGymRoomForCreate(payload: MemberPayload) {
+    if (payload.gymRoomId !== undefined || payload.facilityId !== undefined) {
+      return this.findGymRoomOrFail(payload.gymRoomId ?? payload.facilityId);
+    }
+
+    await this.gymRoomsService.ensureDefaultAndSyncBranchAssignments();
+    const activeGymRooms = await this.gymRoomsRepository.find({
+      where: {
+        status: 'active',
+      },
+      order: {
+        id: 'ASC',
+      },
+    });
+
+    if (activeGymRooms.length === 0) return undefined;
+
+    const counts = await Promise.all(
+      activeGymRooms.map(async (gymRoom) => ({
+        gymRoom,
+        count: await this.membersRepository.count({
+          where: {
+            gymRoom: {
+              id: gymRoom.id,
+            },
+          },
+        }),
+      })),
+    );
+
+    return counts.reduce((lowest, candidate) =>
+      candidate.count < lowest.count ? candidate : lowest,
+    ).gymRoom;
   }
 
   private toDateString(date?: Date | string) {
@@ -241,6 +317,13 @@ export class MembersService {
       joinDate: this.toDateString(member.joinDate),
       status: member.status ?? 'expired',
       membershipStatus: member.status ?? 'expired',
+      gymRoomId: member.gymRoom?.id ? String(member.gymRoom.id) : '',
+      facilityId: member.gymRoom?.id ? String(member.gymRoom.id) : '',
+      gymRoomCode: member.gymRoom?.code ?? '',
+      gymRoomName: member.gymRoom?.name ?? '',
+      gymRoomDisplayName: member.gymRoom
+        ? `${member.gymRoom.code ?? `CS${member.gymRoom.id}`} - ${member.gymRoom.name}`
+        : '',
       memberPackages: member.memberPackages,
     };
   }

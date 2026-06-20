@@ -103,6 +103,10 @@ type ApiMember = {
   membershipStatus?: string;
   membership_status?: string;
   status?: string;
+  gymRoomId?: number | string;
+  gymRoomCode?: string;
+  gymRoomName?: string;
+  gymRoomDisplayName?: string;
   joinDate?: string;
   join_date?: string;
   memberPackages?: ApiMemberPackage[];
@@ -126,6 +130,10 @@ type ApiPayment = {
   packageName?: string;
   processedBy?: string;
   notes?: string;
+  gymRoomId?: number | string;
+  gymRoomCode?: string;
+  gymRoomName?: string;
+  gymRoomDisplayName?: string;
 };
 
 const packageTypes: MembershipPackage["type"][] = [
@@ -531,6 +539,18 @@ const mapApiMember = (
   if (trainerSource?.trainerName !== undefined) {
     mappedMember.trainerName = trainerSource.trainerName;
   }
+  if (apiMember.gymRoomId !== undefined) {
+    mappedMember.gymRoomId = String(apiMember.gymRoomId);
+  }
+  if (apiMember.gymRoomCode !== undefined) {
+    mappedMember.gymRoomCode = apiMember.gymRoomCode;
+  }
+  if (apiMember.gymRoomName !== undefined) {
+    mappedMember.gymRoomName = apiMember.gymRoomName;
+  }
+  if (apiMember.gymRoomDisplayName !== undefined) {
+    mappedMember.gymRoomDisplayName = apiMember.gymRoomDisplayName;
+  }
   if (avatar !== undefined) mappedMember.avatar = avatar;
 
   return mappedMember;
@@ -578,6 +598,18 @@ const mapApiPayment = (apiPayment: ApiPayment): Payment => {
   if (apiPayment.notes !== undefined) {
     mappedPayment.notes = apiPayment.notes;
   }
+  if (apiPayment.gymRoomId !== undefined) {
+    mappedPayment.gymRoomId = String(apiPayment.gymRoomId);
+  }
+  if (apiPayment.gymRoomCode !== undefined) {
+    mappedPayment.gymRoomCode = apiPayment.gymRoomCode;
+  }
+  if (apiPayment.gymRoomName !== undefined) {
+    mappedPayment.gymRoomName = apiPayment.gymRoomName;
+  }
+  if (apiPayment.gymRoomDisplayName !== undefined) {
+    mappedPayment.gymRoomDisplayName = apiPayment.gymRoomDisplayName;
+  }
   const memberPackageEndDate =
     memberPackage?.endDate ?? memberPackage?.end_date;
   if (memberPackageEndDate !== undefined) {
@@ -623,6 +655,7 @@ const toApiMemberPayload = (member: Member | Partial<Member>) => ({
   avatarUrl: member.avatar,
   status: member.membershipStatus,
   memberType: "standard",
+  gymRoomId: member.gymRoomId ? Number(member.gymRoomId) : undefined,
 });
 
 const toApiPaymentStatus = (status: Payment["status"]) => {

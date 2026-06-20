@@ -33,6 +33,10 @@ export interface Member {
   packageExpiry?: string;
   trainerId?: string;
   trainerName?: string;
+  gymRoomId?: string;
+  gymRoomCode?: string;
+  gymRoomName?: string;
+  gymRoomDisplayName?: string;
   hasActivePtPackage?: boolean;
   avatar?: string;
 }
@@ -66,6 +70,10 @@ export interface Payment {
   memberPackageEndDate?: string;
   memberPackageTrainerId?: string;
   memberPackageTrainerName?: string;
+  gymRoomId?: string;
+  gymRoomCode?: string;
+  gymRoomName?: string;
+  gymRoomDisplayName?: string;
 }
 
 // Trainer Types
@@ -105,6 +113,10 @@ export interface Schedule {
   type: "personal" | "pt" | "class";
   status: "pending" | "scheduled" | "completed" | "cancelled" | "rejected";
   notes?: string;
+  gymRoomId?: string;
+  gymRoomCode?: string;
+  gymRoomName?: string;
+  gymRoomDisplayName?: string;
   approvalHistory?: ScheduleApprovalHistoryEntry[];
 }
 
@@ -140,6 +152,10 @@ export interface Equipment {
   lastMaintenance?: string;
   nextMaintenance?: string;
   cost: number;
+  gymRoomId?: string;
+  gymRoomCode?: string;
+  gymRoomName?: string;
+  gymRoomDisplayName?: string;
   needsMaintenanceSoon?: boolean;
   maintenanceState?: {
     overdue: boolean;
@@ -157,6 +173,10 @@ export interface Feedback {
   message: string;
   status: "pending" | "in-progress" | "resolved";
   category: "service" | "equipment" | "support" | "other";
+  gymRoomId?: string;
+  gymRoomCode?: string;
+  gymRoomName?: string;
+  gymRoomDisplayName?: string;
   createdAt: string;
   resolvedBy?: string;
   resolvedAt?: string;

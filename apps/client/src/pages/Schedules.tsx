@@ -51,6 +51,11 @@ type ApiSchedule = {
   end_time?: string;
   status?: string;
   notes?: string;
+  gymRoomId?: number | string;
+  facilityId?: number | string;
+  gymRoomCode?: string;
+  gymRoomName?: string;
+  gymRoomDisplayName?: string;
   approvalHistory?: ScheduleApprovalHistoryEntry[] | string;
   approval_history?: ScheduleApprovalHistoryEntry[] | string;
 };
@@ -60,6 +65,13 @@ type ApiTrainerProfile = {
   userId?: number | string;
   user_id?: number | string;
   user?: ApiUser;
+};
+
+type BranchOption = {
+  id: string;
+  code: string;
+  name: string;
+  displayName: string;
 };
 
 type ScheduleForm = {
@@ -136,7 +148,11 @@ const requestJson = async <T,>(
 
 const normalizeScheduleType = (type?: string): Schedule["type"] => {
   const normalized = type?.toLowerCase();
-  if (normalized === "personal" || normalized === "pt" || normalized === "class") {
+  if (
+    normalized === "personal" ||
+    normalized === "pt" ||
+    normalized === "class"
+  ) {
     return normalized;
   }
   return "pt";
@@ -232,13 +248,15 @@ const mapApiSchedule = (schedule: ApiSchedule): Schedule => {
       ? String(schedule.trainerId)
       : schedule.trainer_id !== undefined
         ? String(schedule.trainer_id)
-      : schedule.trainer?.id !== undefined
-        ? String(schedule.trainer.id)
-        : "";
+        : schedule.trainer?.id !== undefined
+          ? String(schedule.trainer.id)
+          : "";
 
   const mappedSchedule: Schedule = {
     id: String(schedule.id ?? ""),
-    memberId: String(schedule.memberId ?? schedule.member_id ?? schedule.member?.id ?? ""),
+    memberId: String(
+      schedule.memberId ?? schedule.member_id ?? schedule.member?.id ?? "",
+    ),
     memberName: getMemberName(schedule.member),
     trainerName: getUserName(schedule.trainer),
     date: getDate(schedule.startTime ?? schedule.start_time ?? schedule.date),
@@ -246,6 +264,10 @@ const mapApiSchedule = (schedule: ApiSchedule): Schedule => {
     endTime: getTime(schedule.endTime ?? schedule.end_time),
     type: normalizeScheduleType(schedule.type),
     status: normalizeScheduleStatus(schedule.status),
+    gymRoomId: String(schedule.gymRoomId ?? schedule.facilityId ?? ""),
+    gymRoomCode: schedule.gymRoomCode ?? "",
+    gymRoomName: schedule.gymRoomName ?? "",
+    gymRoomDisplayName: schedule.gymRoomDisplayName ?? "",
     approvalHistory: normalizeApprovalHistory(
       schedule.approvalHistory ?? schedule.approval_history,
     ),
@@ -268,31 +290,30 @@ export const Schedules: React.FC = () => {
   const isOwner = user?.role === "owner";
   const isTrainer = user?.role === "trainer";
   const isMember = user?.role === "member";
-  const canCreateSchedule = !isManager && !isTrainer;
-  const canUpdateScheduleStatus = !isManager && !isTrainer;
+  const canCreateSchedule = !isOwner && !isTrainer;
+  const canUpdateScheduleStatus = !isOwner && !isTrainer;
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [trainers, setTrainers] = useState<ApiTrainerProfile[]>([]);
+  const [branches, setBranches] = useState<BranchOption[]>([]);
+  const [branchFilter, setBranchFilter] = useState("all");
   const [selectedDate, setSelectedDate] = useState(
     toDateInputValue(new Date()),
   );
   const [showModal, setShowModal] = useState(false);
-  const [scheduleForm, setScheduleForm] = useState<ScheduleForm>(
-    emptyScheduleForm,
-  );
+  const [scheduleForm, setScheduleForm] =
+    useState<ScheduleForm>(emptyScheduleForm);
   const [replacementForm, setReplacementForm] = useState<ReplacementForm>({
     schedule: null,
     trainerId: "",
     reason: "",
   });
   const currentMember = user
-    ? members.find((member) => member.userId === user.id) ??
+    ? (members.find((member) => member.userId === user.id) ??
       members.find((member) => member.email === user.email) ??
       members.find(
         (member) =>
-          !member.userId &&
-          !member.email &&
-          member.name === user.name,
-      )
+          !member.userId && !member.email && member.name === user.name,
+      ))
     : undefined;
   const currentTrainer = user
     ? trainers.find(
@@ -301,18 +322,17 @@ export const Schedules: React.FC = () => {
           trainer.user?.email === user.email,
       )
     : undefined;
-  const currentTrainerIds = [
-    user?.id,
-    getTrainerUserId(currentTrainer),
-  ].filter(Boolean);
-  const currentMemberIds = [
-    currentMember?.id,
-    currentMember?.userId,
-  ].filter(Boolean);
+  const currentTrainerIds = [user?.id, getTrainerUserId(currentTrainer)].filter(
+    Boolean,
+  );
+  const currentMemberIds = [currentMember?.id, currentMember?.userId].filter(
+    Boolean,
+  );
   const memberHasAssignedPt =
     currentMember?.hasActivePtPackage === true &&
     Boolean(currentMember.trainerId);
-  const selectableMembers = isMember && currentMember ? [currentMember] : members;
+  const selectableMembers =
+    isMember && currentMember ? [currentMember] : members;
   const assignedTrainer = currentMember?.trainerId
     ? {
         id: currentMember.trainerId,
@@ -338,19 +358,50 @@ export const Schedules: React.FC = () => {
     Promise.allSettled([
       requestJson<unknown>("/training-schedules"),
       requestJson<unknown>("/trainer-profiles"),
-    ]).then(([scheduleResult, trainerResult]) => {
+      requestJson<unknown>("/gym-branches"),
+    ]).then(([scheduleResult, trainerResult, branchResult]) => {
       if (!isMounted) return;
 
-      if (scheduleResult.status === "fulfilled" && Array.isArray(scheduleResult.value)) {
-        setSchedules(scheduleResult.value.map((item) => mapApiSchedule(item as ApiSchedule)));
+      if (
+        scheduleResult.status === "fulfilled" &&
+        Array.isArray(scheduleResult.value)
+      ) {
+        setSchedules(
+          scheduleResult.value.map((item) =>
+            mapApiSchedule(item as ApiSchedule),
+          ),
+        );
       } else {
         setSchedules([]);
       }
 
-      if (trainerResult.status === "fulfilled" && Array.isArray(trainerResult.value)) {
+      if (
+        trainerResult.status === "fulfilled" &&
+        Array.isArray(trainerResult.value)
+      ) {
         setTrainers(trainerResult.value as ApiTrainerProfile[]);
       } else {
         setTrainers([]);
+      }
+
+      if (
+        branchResult.status === "fulfilled" &&
+        Array.isArray(branchResult.value)
+      ) {
+        setBranches(
+          branchResult.value
+            .map((branch: any) => ({
+              id: String(branch.id ?? ""),
+              code: branch.code ?? "",
+              name: branch.name ?? "",
+              displayName: branch.code
+                ? `${branch.code} - ${branch.name ?? ""}`
+                : (branch.name ?? ""),
+            }))
+            .filter((branch) => branch.id && branch.code),
+        );
+      } else {
+        setBranches([]);
       }
     });
 
@@ -360,8 +411,15 @@ export const Schedules: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    if (isMember && currentMember && scheduleForm.memberId !== currentMember.id) {
-      setScheduleForm((current) => ({ ...current, memberId: currentMember.id }));
+    if (
+      isMember &&
+      currentMember &&
+      scheduleForm.memberId !== currentMember.id
+    ) {
+      setScheduleForm((current) => ({
+        ...current,
+        memberId: currentMember.id,
+      }));
       return;
     }
 
@@ -385,19 +443,20 @@ export const Schedules: React.FC = () => {
   }, [currentMember?.trainerId, isMember, scheduleForm.type]);
 
   const visibleSchedules = isTrainer
-    ? schedules.filter(
-        (schedule) =>
-          schedule.trainerId
-            ? currentTrainerIds.includes(schedule.trainerId)
-            : schedule.trainerName === user?.name,
+    ? schedules.filter((schedule) =>
+        schedule.trainerId
+          ? currentTrainerIds.includes(schedule.trainerId)
+          : schedule.trainerName === user?.name,
       )
     : isMember
       ? schedules.filter((schedule) =>
           currentMemberIds.includes(schedule.memberId),
         )
-    : schedules;
+      : schedules;
   const filteredSchedules = visibleSchedules.filter(
-    (schedule) => schedule.date === selectedDate,
+    (schedule) =>
+      schedule.date === selectedDate &&
+      (branchFilter === "all" || schedule.gymRoomId === branchFilter),
   );
 
   const handleCreateSchedule = async (event: React.FormEvent) => {
@@ -429,11 +488,11 @@ export const Schedules: React.FC = () => {
       const apiSchedule = await requestJson<unknown>("/training-schedules", {
         method: "POST",
         body: JSON.stringify({
-          memberId: Number(isMember ? currentMember?.id : scheduleForm.memberId),
+          memberId: Number(
+            isMember ? currentMember?.id : scheduleForm.memberId,
+          ),
           trainerId:
-            scheduleType === "pt" && trainerId
-              ? Number(trainerId)
-              : undefined,
+            scheduleType === "pt" && trainerId ? Number(trainerId) : undefined,
           type: scheduleType,
           startTime,
           endTime,
@@ -448,7 +507,10 @@ export const Schedules: React.FC = () => {
         throw new Error("API /training-schedules khong tra ve du lieu hop le");
       }
 
-      setSchedules((current) => [mapApiSchedule(apiSchedule as ApiSchedule), ...current]);
+      setSchedules((current) => [
+        mapApiSchedule(apiSchedule as ApiSchedule),
+        ...current,
+      ]);
       setShowModal(false);
       setScheduleForm({
         ...emptyScheduleForm(),
@@ -456,7 +518,9 @@ export const Schedules: React.FC = () => {
         date: selectedDate,
       });
     } catch (error) {
-      window.alert(error instanceof Error ? error.message : "Khong the dat lich!");
+      window.alert(
+        error instanceof Error ? error.message : "Khong the dat lich!",
+      );
     }
   };
 
@@ -465,10 +529,13 @@ export const Schedules: React.FC = () => {
     status: Schedule["status"],
     extraPayload: Record<string, unknown> = {},
   ) => {
-    const apiSchedule = await requestJson<unknown>(`/training-schedules/${schedule.id}`, {
-      method: "PATCH",
-      body: JSON.stringify({ status, ...extraPayload }),
-    });
+    const apiSchedule = await requestJson<unknown>(
+      `/training-schedules/${schedule.id}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ status, ...extraPayload }),
+      },
+    );
     const updatedSchedule =
       typeof apiSchedule === "object" && apiSchedule !== null
         ? mapApiSchedule(apiSchedule as ApiSchedule)
@@ -483,7 +550,9 @@ export const Schedules: React.FC = () => {
     updateScheduleStatus(schedule, "scheduled", {
       approvalAction: "accepted",
     }).catch((error) => {
-      window.alert(error instanceof Error ? error.message : "Không thể nhận lịch.");
+      window.alert(
+        error instanceof Error ? error.message : "Không thể nhận lịch.",
+      );
     });
 
   const rejectSchedule = (schedule: Schedule) => {
@@ -494,7 +563,9 @@ export const Schedules: React.FC = () => {
       approvalAction: "rejected",
       approvalReason: reason.trim() || "PT từ chối lịch tập",
     }).catch((error) => {
-      window.alert(error instanceof Error ? error.message : "Không thể từ chối lịch.");
+      window.alert(
+        error instanceof Error ? error.message : "Không thể từ chối lịch.",
+      );
     });
   };
 
@@ -544,7 +615,9 @@ export const Schedules: React.FC = () => {
       approvalAction: "cancelled",
       approvalReason: "Hội viên không chọn PT thay thế",
     }).catch((error) => {
-      window.alert(error instanceof Error ? error.message : "Không thể hủy lịch.");
+      window.alert(
+        error instanceof Error ? error.message : "Không thể hủy lịch.",
+      );
     });
   };
 
@@ -578,9 +651,7 @@ export const Schedules: React.FC = () => {
 
   const formatHistoryTime = (value: string) => {
     const date = new Date(value);
-    return Number.isNaN(date.getTime())
-      ? value
-      : date.toLocaleString("vi-VN");
+    return Number.isNaN(date.getTime()) ? value : date.toLocaleString("vi-VN");
   };
 
   const getTypeText = (type: string) => {
@@ -619,19 +690,36 @@ export const Schedules: React.FC = () => {
         <div className="bg-white rounded-lg shadow p-6">
           <div className="flex items-center gap-4 mb-6">
             <CalendarIcon size={20} className="text-gray-600" />
-            <label className="text-sm font-medium text-gray-700">Chọn ngày:</label>
+            <label className="text-sm font-medium text-gray-700">
+              Chọn ngày:
+            </label>
             <input
               type="date"
               value={selectedDate}
               onChange={(e) => setSelectedDate(e.target.value)}
               className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
+            <select
+              value={branchFilter}
+              onChange={(event) => setBranchFilter(event.target.value)}
+              className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+            >
+              <option value="all">Tất cả cơ sở</option>
+              {branches.map((branch) => (
+                <option key={branch.id} value={branch.id}>
+                  {branch.displayName}
+                </option>
+              ))}
+            </select>
           </div>
 
           <div className="space-y-3">
             {filteredSchedules.length === 0 ? (
               <div className="text-center py-12 text-gray-500">
-                <CalendarIcon size={48} className="mx-auto mb-4 text-gray-300" />
+                <CalendarIcon
+                  size={48}
+                  className="mx-auto mb-4 text-gray-300"
+                />
                 <p>Không có lịch tập nào cho ngày này</p>
               </div>
             ) : (
@@ -688,6 +776,9 @@ export const Schedules: React.FC = () => {
                               <span>PT: {schedule.trainerName}</span>
                             </div>
                           )}
+                          <div className="flex items-center gap-2">
+                            <span>Cơ sở: {schedule.gymRoomCode || "-"}</span>
+                          </div>
                           {schedule.notes && <span>{schedule.notes}</span>}
                         </div>
 
@@ -699,18 +790,22 @@ export const Schedules: React.FC = () => {
                                 Lịch sử xử lý PT
                               </div>
                               <div className="space-y-1.5 text-sm text-gray-600">
-                                {schedule.approvalHistory.map((entry, index) => (
-                                  <p key={`${entry.at}-${index}`}>
-                                    {entry.trainerName
-                                      ? `PT ${entry.trainerName}`
-                                      : "PT"}{" "}
-                                    {getApprovalActionText(entry.action)}
-                                    {entry.reason ? `: ${entry.reason}` : ""}{" "}
-                                    <span className="text-xs text-gray-400">
-                                      ({formatHistoryTime(entry.at)})
-                                    </span>
-                                  </p>
-                                ))}
+                                {schedule.approvalHistory.map(
+                                  (entry, index) => (
+                                    <p key={`${entry.at}-${index}`}>
+                                      {entry.trainerName
+                                        ? `PT ${entry.trainerName}`
+                                        : "PT"}{" "}
+                                      {getApprovalActionText(entry.action)}
+                                      {entry.reason
+                                        ? `: ${entry.reason}`
+                                        : ""}{" "}
+                                      <span className="text-xs text-gray-400">
+                                        ({formatHistoryTime(entry.at)})
+                                      </span>
+                                    </p>
+                                  ),
+                                )}
                               </div>
                             </div>
                           )}
@@ -827,77 +922,83 @@ export const Schedules: React.FC = () => {
 
             <form onSubmit={handleCreateSchedule} className="space-y-4">
               {!isMember && (
-              <FormField label="Chọn hội viên">
-                <select
-                  required
-                  value={scheduleForm.memberId}
-                  onChange={(event) =>
-                    setScheduleForm((current) => ({
-                      ...current,
-                      memberId: event.target.value,
-                    }))
-                  }
-                  className={inputClass}
-                >
-                  {selectableMembers.map((member) => (
-                    <option key={member.id} value={member.id}>
-                      {member.name}
-                    </option>
-                  ))}
-                </select>
-              </FormField>
-              )}
-
-              {!isMember && (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <FormField label="Loại lịch tập">
+                <FormField label="Chọn hội viên">
                   <select
-                    value={scheduleForm.type}
+                    required
+                    value={scheduleForm.memberId}
                     onChange={(event) =>
                       setScheduleForm((current) => ({
                         ...current,
-                        type: event.target.value as Schedule["type"],
+                        memberId: event.target.value,
                       }))
                     }
                     className={inputClass}
                   >
-                    <option value="personal">Tập cá nhân</option>
-                    <option value="pt">Tập với PT</option>
-                    <option value="class">Lớp học</option>
-                  </select>
-                </FormField>
-                {!(isMember && scheduleForm.type === "pt" && !memberHasAssignedPt) && (
-                  <FormField label="Huấn luyện viên">
-                  <select
-                    value={
-                      isMember && scheduleForm.type === "pt"
-                        ? assignedTrainer?.id ?? ""
-                        : scheduleForm.trainerId
-                    }
-                    onChange={(event) =>
-                      setScheduleForm((current) => ({
-                        ...current,
-                        trainerId: event.target.value,
-                      }))
-                    }
-                    className={inputClass}
-                    required={isMember && scheduleForm.type === "pt"}
-                  >
-                    {!(isMember && scheduleForm.type === "pt") && (
-                      <option value="">Không chọn</option>
-                    )}
-                    {availableTrainers.map((trainer) => (
-                      <option
-                        key={trainer.id}
-                        value={trainer.userId ?? trainer.user?.id ?? ""}
-                      >
-                        {getUserName(trainer.user) || trainer.userId || trainer.id}
+                    {selectableMembers.map((member) => (
+                      <option key={member.id} value={member.id}>
+                        {member.name}
                       </option>
                     ))}
                   </select>
+                </FormField>
+              )}
+
+              {!isMember && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <FormField label="Loại lịch tập">
+                    <select
+                      value={scheduleForm.type}
+                      onChange={(event) =>
+                        setScheduleForm((current) => ({
+                          ...current,
+                          type: event.target.value as Schedule["type"],
+                        }))
+                      }
+                      className={inputClass}
+                    >
+                      <option value="personal">Tập cá nhân</option>
+                      <option value="pt">Tập với PT</option>
+                      <option value="class">Lớp học</option>
+                    </select>
                   </FormField>
-                )}
-              </div>
+                  {!(
+                    isMember &&
+                    scheduleForm.type === "pt" &&
+                    !memberHasAssignedPt
+                  ) && (
+                    <FormField label="Huấn luyện viên">
+                      <select
+                        value={
+                          isMember && scheduleForm.type === "pt"
+                            ? (assignedTrainer?.id ?? "")
+                            : scheduleForm.trainerId
+                        }
+                        onChange={(event) =>
+                          setScheduleForm((current) => ({
+                            ...current,
+                            trainerId: event.target.value,
+                          }))
+                        }
+                        className={inputClass}
+                        required={isMember && scheduleForm.type === "pt"}
+                      >
+                        {!(isMember && scheduleForm.type === "pt") && (
+                          <option value="">Không chọn</option>
+                        )}
+                        {availableTrainers.map((trainer) => (
+                          <option
+                            key={trainer.id}
+                            value={trainer.userId ?? trainer.user?.id ?? ""}
+                          >
+                            {getUserName(trainer.user) ||
+                              trainer.userId ||
+                              trainer.id}
+                          </option>
+                        ))}
+                      </select>
+                    </FormField>
+                  )}
+                </div>
               )}
 
               <div
@@ -934,20 +1035,20 @@ export const Schedules: React.FC = () => {
                   />
                 </FormField>
                 {!isMember && (
-                <FormField label="Giờ kết thúc">
-                  <input
-                    required
-                    type="time"
-                    value={scheduleForm.endTime}
-                    onChange={(event) =>
-                      setScheduleForm((current) => ({
-                        ...current,
-                        endTime: event.target.value,
-                      }))
-                    }
-                    className={inputClass}
-                  />
-                </FormField>
+                  <FormField label="Giờ kết thúc">
+                    <input
+                      required
+                      type="time"
+                      value={scheduleForm.endTime}
+                      onChange={(event) =>
+                        setScheduleForm((current) => ({
+                          ...current,
+                          endTime: event.target.value,
+                        }))
+                      }
+                      className={inputClass}
+                    />
+                  </FormField>
                 )}
               </div>
 
@@ -967,7 +1068,8 @@ export const Schedules: React.FC = () => {
 
               {isMember && !memberHasAssignedPt && (
                 <p className="text-sm text-gray-500">
-                  Bạn chưa được phân công PT. Vui lòng đăng ký gói PT hoặc liên hệ quản lý.
+                  Bạn chưa được phân công PT. Vui lòng đăng ký gói PT hoặc liên
+                  hệ quản lý.
                 </p>
               )}
 
@@ -1099,7 +1201,9 @@ const FormField = ({
   children: React.ReactNode;
 }) => (
   <label className="block">
-    <span className="block text-sm font-medium text-gray-700 mb-1">{label}</span>
+    <span className="block text-sm font-medium text-gray-700 mb-1">
+      {label}
+    </span>
     {children}
   </label>
 );

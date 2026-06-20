@@ -5,6 +5,7 @@ import { UsersModule } from './users/users.module';
 import { MembersModule } from './members/members.module';
 import { TrainerProfilesModule } from './trainer-profiles/trainer-profiles.module';
 import { GymPackagesModule } from './gym-packages/gym-packages.module';
+import { GymRoomsModule } from './gym-rooms/gym-rooms.module';
 import { MemberPackagesModule } from './member-packages/member-packages.module';
 import { PaymentsModule } from './payments/payments.module';
 import { TrainingSchedulesModule } from './training-schedules/training-schedules.module';
@@ -20,6 +21,7 @@ import { Equipment } from './equipments/entities/equipment.entity';
 import { Exercise } from './exercises/entities/exercise.entity';
 import { Feedback } from './feedbacks/entities/feedback.entity';
 import { GymPackage } from './gym-packages/entities/gym-package.entity';
+import { GymRoom } from './gym-rooms/entities/gym-room.entity';
 import { MaintenanceLog } from './maintenance-logs/entities/maintenance-log.entity';
 import { MemberPackage } from './member-packages/entities/member-package.entity';
 import { Member } from './members/entities/member.entity';
@@ -37,6 +39,7 @@ const typeOrmEntities = [
   Exercise,
   Feedback,
   GymPackage,
+  GymRoom,
   MaintenanceLog,
   MemberPackage,
   Member,
@@ -86,6 +89,8 @@ const typeOrmEntities = [
     TrainerProfilesModule,
 
     GymPackagesModule,
+
+    GymRoomsModule,
 
     MemberPackagesModule,
 

@@ -17,6 +17,8 @@ type PaymentPayload = Partial<CreatePaymentDto> & {
   status?: string;
   trainerId?: number;
   trainer_id?: number;
+  gymRoomId?: number;
+  facilityId?: number;
 };
 
 @Injectable()
@@ -42,6 +44,7 @@ export class PaymentsService {
 
     const payment = this.paymentsRepository.create({
       member,
+      gymRoom: member.gymRoom,
       memberPackage,
       amount: Number(payload.amount ?? 0),
       method: payload.method ?? 'cash',
@@ -66,7 +69,9 @@ export class PaymentsService {
       relations: {
         member: {
           user: true,
+          gymRoom: true,
         },
+        gymRoom: true,
         memberPackage: {
           package: true,
           trainer: true,
@@ -91,6 +96,7 @@ export class PaymentsService {
 
     if (payload.memberId !== undefined) {
       payment.member = await this.findMemberOrFail(payload.memberId);
+      payment.gymRoom = payment.member.gymRoom;
     }
     if (payload.memberPackageId !== undefined) {
       payment.memberPackage = payload.memberPackageId
@@ -100,7 +106,9 @@ export class PaymentsService {
     const trainerId = payload.trainerId ?? payload.trainer_id;
     if (trainerId !== undefined) {
       if (!payment.memberPackage) {
-        throw new BadRequestException('Member package is required for trainer assignment');
+        throw new BadRequestException(
+          'Member package is required for trainer assignment',
+        );
       }
       payment.memberPackage.trainer = trainerId
         ? await this.findUserOrFail(trainerId)
@@ -153,7 +161,9 @@ export class PaymentsService {
       relations: {
         member: {
           user: true,
+          gymRoom: true,
         },
+        gymRoom: true,
         memberPackage: {
           member: true,
           package: true,
@@ -180,6 +190,7 @@ export class PaymentsService {
       },
       relations: {
         user: true,
+        gymRoom: true,
       },
     });
 
@@ -318,6 +329,24 @@ export class PaymentsService {
       status: payment.status ?? 'paid',
       paidAt: this.toDateString(payment.paidAt),
       paymentDate: this.toDateString(payment.paidAt),
+      gymRoomId: payment.gymRoom?.id
+        ? String(payment.gymRoom.id)
+        : member?.gymRoom?.id
+          ? String(member.gymRoom.id)
+          : '',
+      facilityId: payment.gymRoom?.id
+        ? String(payment.gymRoom.id)
+        : member?.gymRoom?.id
+          ? String(member.gymRoom.id)
+          : '',
+      gymRoomCode: payment.gymRoom?.code ?? member?.gymRoom?.code ?? '',
+      gymRoomName: payment.gymRoom?.name ?? member?.gymRoom?.name ?? '',
+      gymRoomDisplayName:
+        payment.gymRoom || member?.gymRoom
+          ? `${payment.gymRoom?.code ?? member?.gymRoom?.code ?? ''} - ${
+              payment.gymRoom?.name ?? member?.gymRoom?.name ?? ''
+            }`
+          : '',
     };
   }
 

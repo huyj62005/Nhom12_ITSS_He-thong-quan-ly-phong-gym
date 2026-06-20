@@ -4,9 +4,10 @@ import { TrainerProfilesService } from './trainer-profiles.service';
 import { TrainerProfilesController } from './trainer-profiles.controller';
 import { TrainerProfile } from './entities/trainer-profile.entity';
 import { User } from '../users/entities/user.entity';
+import { GymRoom } from '../gym-rooms/entities/gym-room.entity';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([TrainerProfile, User])],
+  imports: [TypeOrmModule.forFeature([TrainerProfile, User, GymRoom])],
   controllers: [TrainerProfilesController],
   providers: [TrainerProfilesService],
 })

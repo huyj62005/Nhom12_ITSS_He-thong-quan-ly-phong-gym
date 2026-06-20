@@ -98,6 +98,13 @@ type TrainerOption = {
   email: string;
 };
 
+type BranchOption = {
+  id: string;
+  code: string;
+  name: string;
+  displayName: string;
+};
+
 const requestJson = async <T,>(path: string): Promise<T> => {
   const response = await fetch(`${API_BASE_URL}${path}`);
   const responseText = await response.text();
@@ -131,6 +138,7 @@ export const Payments: React.FC = () => {
   } = useGymData();
 
   const [searchTerm, setSearchTerm] = useState("");
+  const [branchFilter, setBranchFilter] = useState("all");
   const [showModal, setShowModal] = useState(false);
   const [viewPayment, setViewPayment] = useState<Payment | null>(null);
   const [toast, setToast] = useState<ToastState | null>(null);
@@ -148,6 +156,7 @@ export const Payments: React.FC = () => {
   const [selectedPackageId, setSelectedPackageId] = useState("");
   const [selectedTrainerId, setSelectedTrainerId] = useState("");
   const [trainers, setTrainers] = useState<TrainerOption[]>([]);
+  const [branches, setBranches] = useState<BranchOption[]>([]);
   const [paymentMethod, setPaymentMethod] = useState<"cash" | "transfer">(
     "cash",
   );
@@ -177,9 +186,14 @@ export const Payments: React.FC = () => {
   useEffect(() => {
     let isMounted = true;
 
-    requestJson<unknown>("/trainer-profiles")
-      .then((apiTrainers) => {
+    Promise.allSettled([
+      requestJson<unknown>("/trainer-profiles"),
+      requestJson<unknown>("/gym-branches"),
+    ])
+      .then(([trainerResult, branchResult]) => {
         if (!isMounted) return;
+        const apiTrainers =
+          trainerResult.status === "fulfilled" ? trainerResult.value : [];
         setTrainers(
           Array.isArray(apiTrainers)
             ? apiTrainers
@@ -187,6 +201,22 @@ export const Payments: React.FC = () => {
                   mapTrainerOption(trainer as ApiTrainerProfile),
                 )
                 .filter((trainer) => trainer.id)
+            : [],
+        );
+        const apiBranches =
+          branchResult.status === "fulfilled" ? branchResult.value : [];
+        setBranches(
+          Array.isArray(apiBranches)
+            ? apiBranches
+                .map((branch: any) => ({
+                  id: String(branch.id ?? ""),
+                  code: branch.code ?? "",
+                  name: branch.name ?? "",
+                  displayName: branch.code
+                    ? `${branch.code} - ${branch.name ?? ""}`
+                    : (branch.name ?? ""),
+                }))
+                .filter((branch) => branch.id && branch.code)
             : [],
         );
       })
@@ -216,7 +246,9 @@ export const Payments: React.FC = () => {
       getPaymentPackageName(p.packageName)
         .toLowerCase()
         .includes(searchTerm.toLowerCase());
-    return matchesSearch;
+    const matchesBranch =
+      branchFilter === "all" || p.gymRoomId === branchFilter;
+    return matchesSearch && matchesBranch;
   });
 
   const totalRevenue = payments
@@ -504,6 +536,18 @@ export const Payments: React.FC = () => {
                   className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
                 />
               </div>
+              <select
+                value={branchFilter}
+                onChange={(event) => setBranchFilter(event.target.value)}
+                className="px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-white min-w-[190px]"
+              >
+                <option value="all">Tất cả cơ sở</option>
+                {branches.map((branch) => (
+                  <option key={branch.id} value={branch.id}>
+                    {branch.displayName}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
 
@@ -514,6 +558,7 @@ export const Payments: React.FC = () => {
                   {[
                     "Mã GD",
                     "Hội Viên",
+                    "Cơ sở",
                     "Gói Tập",
                     "Số Tiền",
                     "Phương Thức",
@@ -534,7 +579,7 @@ export const Payments: React.FC = () => {
                 {filteredPayments.length === 0 ? (
                   <tr>
                     <td
-                      colSpan={8}
+                      colSpan={9}
                       className="px-5 py-12 text-center text-gray-400 text-sm"
                     >
                       Không tìm thấy giao dịch phù hợp
@@ -553,6 +598,9 @@ export const Payments: React.FC = () => {
                       </td>
                       <td className="px-5 py-4 whitespace-nowrap text-sm text-gray-900 font-medium">
                         {payment.memberName}
+                      </td>
+                      <td className="px-5 py-4 whitespace-nowrap text-sm font-semibold text-blue-700">
+                        {payment.gymRoomCode || "-"}
                       </td>
                       <td className="px-5 py-4 whitespace-nowrap text-sm text-gray-700">
                         {getPaymentPackageName(payment.packageName)}
@@ -580,9 +628,7 @@ export const Payments: React.FC = () => {
                               <>
                                 <button
                                   type="button"
-                                  onClick={() =>
-                                    handleApprovePayment(payment)
-                                  }
+                                  onClick={() => handleApprovePayment(payment)}
                                   disabled={updatingPaymentId === payment.id}
                                   className="p-1.5 text-green-600 hover:bg-green-50 rounded-lg transition-colors disabled:opacity-40"
                                   title="Duyệt giao dịch"

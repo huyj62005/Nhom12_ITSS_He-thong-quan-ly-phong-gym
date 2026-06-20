@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { DashboardLayout } from "../components/DashboardLayout";
 import { useGymData } from "../contexts/GymDataContext";
 import {
@@ -26,6 +26,7 @@ interface MemberFormData {
   gender: "male" | "female" | "other";
   address: string;
   avatarUrl: string;
+  gymRoomId: string;
 }
 
 const emptyForm: MemberFormData = {
@@ -36,7 +37,17 @@ const emptyForm: MemberFormData = {
   gender: "male",
   address: "",
   avatarUrl: "",
+  gymRoomId: "",
 };
+
+type BranchOption = {
+  id: string;
+  code: string;
+  name: string;
+  displayName: string;
+};
+
+const API_BASE_URL = "http://localhost:3000";
 
 const getStatusColor = (status: string) => {
   switch (status) {
@@ -89,6 +100,8 @@ export const Members: React.FC = () => {
 
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [branchFilter, setBranchFilter] = useState("all");
+  const [branches, setBranches] = useState<BranchOption[]>([]);
 
   const [showAddModal, setShowAddModal] = useState(false);
   const [viewMember, setViewMember] = useState<Member | null>(null);
@@ -114,6 +127,37 @@ export const Members: React.FC = () => {
     setTimeout(() => setToast(null), 3000);
   };
 
+  useEffect(() => {
+    let isMounted = true;
+
+    fetch(`${API_BASE_URL}/gym-branches`)
+      .then((response) => (response.ok ? response.json() : []))
+      .then((data) => {
+        if (!isMounted) return;
+        setBranches(
+          Array.isArray(data)
+            ? data
+                .map((branch: any) => ({
+                  id: String(branch.id ?? ""),
+                  code: branch.code ?? "",
+                  name: branch.name ?? "",
+                  displayName: branch.code
+                    ? `${branch.code} - ${branch.name ?? ""}`
+                    : (branch.name ?? ""),
+                }))
+                .filter((branch) => branch.id && branch.code)
+            : [],
+        );
+      })
+      .catch(() => {
+        if (isMounted) setBranches([]);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
   const filteredMembers = members.filter((m) => {
     const q = searchTerm.toLowerCase();
     const matchesSearch =
@@ -125,7 +169,9 @@ export const Members: React.FC = () => {
       statusFilter === "all" ||
       m.membershipStatus === statusFilter ||
       (statusFilter === "expired" && !m.currentPackage);
-    return matchesSearch && matchesStatus;
+    const matchesBranch =
+      branchFilter === "all" || m.gymRoomId === branchFilter;
+    return matchesSearch && matchesStatus && matchesBranch;
   });
 
   const handleAvatarChange = (
@@ -160,6 +206,7 @@ export const Members: React.FC = () => {
       gender: member.gender,
       address: member.address,
       avatarUrl: member.avatar || "",
+      gymRoomId: member.gymRoomId || "",
       membershipStatus: member.membershipStatus,
     });
     setEditAvatarPreview(member.avatar || "");
@@ -180,6 +227,7 @@ export const Members: React.FC = () => {
       dateOfBirth: formData.dateOfBirth,
       gender: formData.gender,
       address: formData.address,
+      gymRoomId: formData.gymRoomId,
       membershipStatus: "expired",
       joinDate: new Date().toISOString().slice(0, 10),
       avatar:
@@ -188,11 +236,11 @@ export const Members: React.FC = () => {
     };
     try {
       await addMember(newMember);
-    setShowAddModal(false);
-    showToast(
-      "Thêm hội viên thành công! Vui lòng tạo thanh toán để kích hoạt gói tập.",
-      "success",
-    );
+      setShowAddModal(false);
+      showToast(
+        "Thêm hội viên thành công! Vui lòng tạo thanh toán để kích hoạt gói tập.",
+        "success",
+      );
     } catch (error) {
       showToast(
         error instanceof Error ? error.message : "Khong the them hoi vien!",
@@ -222,6 +270,7 @@ export const Members: React.FC = () => {
       dateOfBirth: editFormData.dateOfBirth,
       gender: editFormData.gender,
       address: editFormData.address,
+      gymRoomId: editFormData.gymRoomId,
       membershipStatus: editFormData.membershipStatus,
       ...(avatar ? { avatar } : {}),
     });
@@ -367,6 +416,18 @@ export const Members: React.FC = () => {
                 <option value="active">Hoạt động</option>
                 <option value="expired">Hết hạn / Chưa có gói</option>
               </select>
+              <select
+                value={branchFilter}
+                onChange={(e) => setBranchFilter(e.target.value)}
+                className="px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-white min-w-[190px]"
+              >
+                <option value="all">Tất cả cơ sở</option>
+                {branches.map((branch) => (
+                  <option key={branch.id} value={branch.id}>
+                    {branch.displayName}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
 
@@ -382,6 +443,9 @@ export const Members: React.FC = () => {
                   </th>
                   <th className="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
                     Liên Hệ
+                  </th>
+                  <th className="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                    Cơ Sở
                   </th>
                   <th className="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
                     Gói Tập
@@ -401,7 +465,7 @@ export const Members: React.FC = () => {
                 {filteredMembers.length === 0 ? (
                   <tr>
                     <td
-                      colSpan={7}
+                      colSpan={8}
                       className="px-5 py-12 text-center text-gray-400 text-sm"
                     >
                       Không tìm thấy hội viên phù hợp
@@ -440,6 +504,20 @@ export const Members: React.FC = () => {
                         <div className="text-xs text-gray-500">
                           {member.phone}
                         </div>
+                      </td>
+                      <td className="px-5 py-4 whitespace-nowrap text-sm text-gray-700">
+                        {member.gymRoomCode ? (
+                          <div>
+                            <div className="font-medium text-gray-900">
+                              {member.gymRoomCode}
+                            </div>
+                            <div className="text-xs text-gray-500">
+                              {member.gymRoomName}
+                            </div>
+                          </div>
+                        ) : (
+                          <span className="text-gray-400">-</span>
+                        )}
                       </td>
                       <td className="px-5 py-4 whitespace-nowrap text-sm text-gray-700">
                         {member.currentPackage ? (
@@ -611,6 +689,25 @@ export const Members: React.FC = () => {
                     <option value="other">Khác</option>
                   </select>
                 </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Cơ sở
+                  </label>
+                  <select
+                    value={formData.gymRoomId}
+                    onChange={(e) =>
+                      setFormData((f) => ({ ...f, gymRoomId: e.target.value }))
+                    }
+                    className={inputCls}
+                  >
+                    <option value="">Tự phân bổ</option>
+                    {branches.map((branch) => (
+                      <option key={branch.id} value={branch.id}>
+                        {branch.displayName}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -767,6 +864,27 @@ export const Members: React.FC = () => {
                     <option value="suspended">Tạm ngưng</option>
                   </select>
                 </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Cơ sở
+                  </label>
+                  <select
+                    value={editFormData.gymRoomId}
+                    onChange={(e) =>
+                      setEditFormData((f) => ({
+                        ...f,
+                        gymRoomId: e.target.value,
+                      }))
+                    }
+                    className={inputCls}
+                  >
+                    {branches.map((branch) => (
+                      <option key={branch.id} value={branch.id}>
+                        {branch.displayName}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -887,6 +1005,16 @@ export const Members: React.FC = () => {
                   )}
                 />
                 <InfoRow label="Địa chỉ" value={viewMember.address} colSpan />
+                <InfoRow
+                  label="Cơ sở"
+                  value={
+                    viewMember.gymRoomDisplayName ||
+                    (viewMember.gymRoomCode
+                      ? `${viewMember.gymRoomCode} - ${viewMember.gymRoomName}`
+                      : "-")
+                  }
+                  colSpan
+                />
                 <InfoRow
                   label="Gói tập hiện tại"
                   value={getPackageDisplayName(viewMember.currentPackage)}

@@ -8,6 +8,14 @@ export class CreateMemberDto {
   @IsInt()
   managedBy!: number;
 
+  @IsOptional()
+  @IsInt()
+  gymRoomId?: number;
+
+  @IsOptional()
+  @IsInt()
+  facilityId?: number;
+
   @IsString()
   fullName?: string;
 

@@ -1,4 +1,8 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { CreateTrainingScheduleDto } from './dto/create-training-schedule.dto';
@@ -14,6 +18,8 @@ type SchedulePayload = Partial<CreateTrainingScheduleDto> & {
   notes?: string;
   approvalAction?: ScheduleApprovalAction;
   approvalReason?: string;
+  gymRoomId?: number;
+  facilityId?: number;
 };
 
 type ScheduleStatus =
@@ -88,6 +94,7 @@ export class TrainingSchedulesService {
     );
     const schedule = this.schedulesRepository.create({
       member,
+      gymRoom: member.gymRoom,
       memberPackage: assignment.memberPackage,
       trainer: assignment.trainer,
       type: scheduleType,
@@ -121,7 +128,9 @@ export class TrainingSchedulesService {
       relations: {
         member: {
           user: true,
+          gymRoom: true,
         },
+        gymRoom: true,
         memberPackage: true,
         trainer: true,
       },
@@ -137,13 +146,17 @@ export class TrainingSchedulesService {
     return this.toScheduleResponse(await this.findScheduleOrFail(id));
   }
 
-  async update(id: number, updateTrainingScheduleDto: UpdateTrainingScheduleDto) {
+  async update(
+    id: number,
+    updateTrainingScheduleDto: UpdateTrainingScheduleDto,
+  ) {
     const payload = updateTrainingScheduleDto as SchedulePayload;
     const schedule = await this.findScheduleOrFail(id);
     const previousTrainerId = schedule.trainer?.id;
 
     if (payload.memberId !== undefined) {
       schedule.member = await this.findMemberOrFail(payload.memberId);
+      schedule.gymRoom = schedule.member.gymRoom;
     }
     if (payload.memberPackageId !== undefined) {
       schedule.memberPackage = payload.memberPackageId
@@ -156,8 +169,10 @@ export class TrainingSchedulesService {
         : undefined;
     }
     if (payload.type !== undefined) schedule.type = payload.type;
-    if (payload.startTime !== undefined) schedule.startTime = new Date(payload.startTime);
-    if (payload.endTime !== undefined) schedule.endTime = new Date(payload.endTime);
+    if (payload.startTime !== undefined)
+      schedule.startTime = new Date(payload.startTime);
+    if (payload.endTime !== undefined)
+      schedule.endTime = new Date(payload.endTime);
     if (payload.status !== undefined) {
       schedule.status = this.normalizeScheduleStatus(payload.status);
     }
@@ -209,7 +224,9 @@ export class TrainingSchedulesService {
       relations: {
         member: {
           user: true,
+          gymRoom: true,
         },
+        gymRoom: true,
         memberPackage: true,
         trainer: true,
       },
@@ -233,6 +250,7 @@ export class TrainingSchedulesService {
       },
       relations: {
         user: true,
+        gymRoom: true,
       },
     });
 
@@ -352,7 +370,9 @@ export class TrainingSchedulesService {
 
   private toDateOnlyString(date?: Date | string) {
     if (!date) return undefined;
-    return typeof date === 'string' ? date.slice(0, 10) : date.toISOString().slice(0, 10);
+    return typeof date === 'string'
+      ? date.slice(0, 10)
+      : date.toISOString().slice(0, 10);
   }
 
   private toDateTimeString(date?: Date | string) {
@@ -385,15 +405,22 @@ export class TrainingSchedulesService {
       return parsed
         .filter((item): item is Record<string, unknown> => Boolean(item))
         .map((item) => {
-          const action = this.normalizeApprovalAction(String(item.action ?? ''));
-          const status = this.normalizeScheduleStatus(String(item.status ?? 'pending'), 'pending');
+          const action = this.normalizeApprovalAction(
+            String(item.action ?? ''),
+          );
+          const status = this.normalizeScheduleStatus(
+            String(item.status ?? 'pending'),
+            'pending',
+          );
           const entry: ScheduleApprovalHistoryEntry = {
             action: action ?? 'requested',
             status,
             at: String(item.at ?? new Date().toISOString()),
           };
-          if (item.trainerId !== undefined) entry.trainerId = Number(item.trainerId);
-          if (item.trainerName !== undefined) entry.trainerName = String(item.trainerName);
+          if (item.trainerId !== undefined)
+            entry.trainerId = Number(item.trainerId);
+          if (item.trainerName !== undefined)
+            entry.trainerName = String(item.trainerName);
           if (item.reason !== undefined) entry.reason = String(item.reason);
           return entry;
         });
@@ -441,7 +468,8 @@ export class TrainingSchedulesService {
   ) {
     const explicitAction = this.normalizeApprovalAction(payload.approvalAction);
     const trainerChanged =
-      payload.trainerId !== undefined && schedule.trainer?.id !== previousTrainerId;
+      payload.trainerId !== undefined &&
+      schedule.trainer?.id !== previousTrainerId;
     const inferredAction =
       !explicitAction && trainerChanged && schedule.status === 'pending'
         ? 'resubmitted'
@@ -490,6 +518,26 @@ export class TrainingSchedulesService {
       endTime: this.toDateTimeString(schedule.endTime),
       status: schedule.status ?? 'scheduled',
       notes: schedule.notes,
+      gymRoomId: schedule.gymRoom?.id
+        ? String(schedule.gymRoom.id)
+        : schedule.member?.gymRoom?.id
+          ? String(schedule.member.gymRoom.id)
+          : '',
+      facilityId: schedule.gymRoom?.id
+        ? String(schedule.gymRoom.id)
+        : schedule.member?.gymRoom?.id
+          ? String(schedule.member.gymRoom.id)
+          : '',
+      gymRoomCode:
+        schedule.gymRoom?.code ?? schedule.member?.gymRoom?.code ?? '',
+      gymRoomName:
+        schedule.gymRoom?.name ?? schedule.member?.gymRoom?.name ?? '',
+      gymRoomDisplayName:
+        schedule.gymRoom || schedule.member?.gymRoom
+          ? `${schedule.gymRoom?.code ?? schedule.member?.gymRoom?.code ?? ''} - ${
+              schedule.gymRoom?.name ?? schedule.member?.gymRoom?.name ?? ''
+            }`
+          : '',
       approvalHistory: this.parseApprovalHistory(schedule.approvalHistory),
     };
   }
@@ -506,9 +554,7 @@ export class TrainingSchedulesService {
 
     await this.notificationsService.createForUser(schedule.member?.user?.id, {
       title:
-        action === 'created'
-          ? 'Lịch tập mới'
-          : 'Lịch tập đã được cập nhật',
+        action === 'created' ? 'Lịch tập mới' : 'Lịch tập đã được cập nhật',
       message: `Lịch tập của bạn đã ${actionText}${startTime ? `: ${startTime}` : ''}.`,
       type: `schedule_${action}`,
       targetRoute: '/schedules',

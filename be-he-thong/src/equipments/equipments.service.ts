@@ -11,6 +11,7 @@ import { UpdateEquipmentDto } from './dto/update-equipment.dto';
 import { Equipment } from './entities/equipment.entity';
 import { NotificationsService } from '../notifications/notifications.service';
 import { UserRole } from '../users/entities/user.entity';
+import { GymRoom } from '../gym-rooms/entities/gym-room.entity';
 
 type EquipmentStatus = 'available' | 'maintenance' | 'broken';
 
@@ -26,6 +27,8 @@ export class EquipmentsService {
   constructor(
     @InjectRepository(Equipment)
     private readonly equipmentsRepository: Repository<Equipment>,
+    @InjectRepository(GymRoom)
+    private readonly gymRoomsRepository: Repository<GymRoom>,
     private readonly notificationsService: NotificationsService,
   ) {}
 
@@ -35,6 +38,7 @@ export class EquipmentsService {
       payload.equipmentCode =
         payload.equipmentCode ??
         (await this.generateEquipmentCode(payload.category ?? ''));
+      await this.applyGymRoom(payload, createEquipmentDto);
       const equipment = this.equipmentsRepository.create(payload);
       const savedEquipment = await this.equipmentsRepository.save(equipment);
       await this.notifyEquipmentAttention(savedEquipment);
@@ -51,6 +55,9 @@ export class EquipmentsService {
     const equipments = await this.equipmentsRepository.find({
       order: {
         id: 'ASC',
+      },
+      relations: {
+        gymRoom: true,
       },
     });
 
@@ -82,6 +89,10 @@ export class EquipmentsService {
         );
       }
       Object.assign(equipment, updates);
+      await this.applyGymRoom(
+        equipment,
+        updateEquipmentDto as Partial<CreateEquipmentDto>,
+      );
 
       const savedEquipment = await this.equipmentsRepository.save(equipment);
       await this.notifyEquipmentAttention(savedEquipment);
@@ -114,6 +125,9 @@ export class EquipmentsService {
       where: {
         id,
       },
+      relations: {
+        gymRoom: true,
+      },
     });
 
     if (!equipment) {
@@ -121,6 +135,27 @@ export class EquipmentsService {
     }
 
     return equipment;
+  }
+
+  private async applyGymRoom(
+    equipment: Partial<Equipment>,
+    dto: Partial<CreateEquipmentDto>,
+  ) {
+    const gymRoomId = dto.gymRoomId ?? dto.facilityId;
+    if (gymRoomId === undefined) return;
+
+    const gymRoom = await this.gymRoomsRepository.findOne({
+      where: {
+        id: Number(gymRoomId),
+      },
+    });
+
+    if (!gymRoom) {
+      throw new BadRequestException('Gym room not found');
+    }
+
+    equipment.gymRoom = gymRoom;
+    equipment.position = gymRoom.code ?? `CS${gymRoom.id}`;
   }
 
   private buildEquipmentEntity(
@@ -136,7 +171,9 @@ export class EquipmentsService {
         throw new BadRequestException('Equipment name is required');
       }
       if (name.length > 150) {
-        throw new BadRequestException('Equipment name must be at most 150 characters');
+        throw new BadRequestException(
+          'Equipment name must be at most 150 characters',
+        );
       }
       equipment.name = name;
     } else if (!isUpdate) {
@@ -147,7 +184,9 @@ export class EquipmentsService {
     if (equipmentCode !== undefined) {
       const normalizedCode = equipmentCode.trim().toUpperCase();
       if (normalizedCode.length > 20) {
-        throw new BadRequestException('Equipment code must be at most 20 characters');
+        throw new BadRequestException(
+          'Equipment code must be at most 20 characters',
+        );
       }
       equipment.equipmentCode = normalizedCode || undefined;
     }
@@ -213,7 +252,9 @@ export class EquipmentsService {
     );
     if (lastMaintenanceDate) {
       if (this.isAfterToday(lastMaintenanceDate)) {
-        throw new BadRequestException('Last maintenance date cannot be in the future');
+        throw new BadRequestException(
+          'Last maintenance date cannot be in the future',
+        );
       }
       equipment.lastMaintenanceDate = lastMaintenanceDate;
     }
@@ -235,7 +276,10 @@ export class EquipmentsService {
     if (
       effectivePurchaseDate &&
       effectiveLastMaintenanceDate &&
-      this.compareDateOnly(effectiveLastMaintenanceDate, effectivePurchaseDate) < 0
+      this.compareDateOnly(
+        effectiveLastMaintenanceDate,
+        effectivePurchaseDate,
+      ) < 0
     ) {
       throw new BadRequestException(
         'Last maintenance date cannot be before purchase date',
@@ -245,7 +289,10 @@ export class EquipmentsService {
     if (
       effectivePurchaseDate &&
       effectiveNextMaintenanceDate &&
-      this.compareDateOnly(effectiveNextMaintenanceDate, effectivePurchaseDate) < 0
+      this.compareDateOnly(
+        effectiveNextMaintenanceDate,
+        effectivePurchaseDate,
+      ) < 0
     ) {
       throw new BadRequestException(
         'Next maintenance date cannot be before purchase date',
@@ -255,8 +302,10 @@ export class EquipmentsService {
     if (
       effectiveLastMaintenanceDate &&
       effectiveNextMaintenanceDate &&
-      this.compareDateOnly(effectiveNextMaintenanceDate, effectiveLastMaintenanceDate) <
-        0
+      this.compareDateOnly(
+        effectiveNextMaintenanceDate,
+        effectiveLastMaintenanceDate,
+      ) < 0
     ) {
       throw new BadRequestException(
         'Next maintenance date cannot be before last maintenance date',
@@ -301,9 +350,7 @@ export class EquipmentsService {
 
     const rows = await query.getRawMany<{ equipmentCode?: string }>();
     const maxSequence = rows.reduce((max, row) => {
-      const match = row.equipmentCode?.match(
-        new RegExp(`^${prefix}(\\d{3})$`),
-      );
+      const match = row.equipmentCode?.match(new RegExp(`^${prefix}(\\d{3})$`));
       if (!match) return max;
 
       return Math.max(max, Number(match[1]));
@@ -388,7 +435,9 @@ export class EquipmentsService {
   }
 
   private getMaintenanceState(equipment: Equipment) {
-    const nextMaintenanceDate = this.toDateString(equipment.nextMaintenanceDate);
+    const nextMaintenanceDate = this.toDateString(
+      equipment.nextMaintenanceDate,
+    );
     if (!nextMaintenanceDate) {
       return {
         overdue: false,
@@ -421,6 +470,13 @@ export class EquipmentsService {
       category: equipment.category ?? '',
       quantity: equipment.quantity ?? 1,
       position: equipment.position ?? '',
+      gymRoomId: equipment.gymRoom?.id ? String(equipment.gymRoom.id) : '',
+      facilityId: equipment.gymRoom?.id ? String(equipment.gymRoom.id) : '',
+      gymRoomCode: equipment.gymRoom?.code ?? '',
+      gymRoomName: equipment.gymRoom?.name ?? '',
+      gymRoomDisplayName: equipment.gymRoom
+        ? `${equipment.gymRoom.code ?? `CS${equipment.gymRoom.id}`} - ${equipment.gymRoom.name}`
+        : '',
       purchaseDate: this.toDateString(equipment.purchaseDate),
       lastMaintenanceDate: this.toDateString(equipment.lastMaintenanceDate),
       lastMaintenance: this.toDateString(equipment.lastMaintenanceDate),
@@ -448,7 +504,9 @@ export class EquipmentsService {
     const status = equipment.status ?? 'available';
     const maintenanceState = this.getMaintenanceState(equipment);
     const needsAttention =
-      status === 'maintenance' || status === 'broken' || maintenanceState.dueSoon;
+      status === 'maintenance' ||
+      status === 'broken' ||
+      maintenanceState.dueSoon;
 
     if (!needsAttention) return;
 
@@ -459,15 +517,12 @@ export class EquipmentsService {
           ? 'đang bảo trì'
           : 'sắp đến hạn bảo trì';
 
-    await this.notificationsService.createForRoles(
-      [UserRole.OWNER],
-      {
-        title: 'Thiết bị cần chú ý',
-        message: `${equipment.name ?? 'Thiết bị'} ${statusText}.`,
-        type: 'equipment_attention',
-        targetRoute: '/equipment',
-        relatedEntityId: String(equipment.id),
-      },
-    );
+    await this.notificationsService.createForRoles([UserRole.OWNER], {
+      title: 'Thiết bị cần chú ý',
+      message: `${equipment.name ?? 'Thiết bị'} ${statusText}.`,
+      type: 'equipment_attention',
+      targetRoute: '/equipment',
+      relatedEntityId: String(equipment.id),
+    });
   }
 }

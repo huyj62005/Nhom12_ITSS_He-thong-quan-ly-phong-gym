@@ -1,74 +1,82 @@
 import {
-    IsDateString,
-    IsEnum,
-    IsInt,
-    IsNumber,
-    IsOptional,
-    IsString,
-    Min,
+  IsDateString,
+  IsEnum,
+  IsInt,
+  IsNumber,
+  IsOptional,
+  IsString,
+  Min,
 } from 'class-validator';
 
 export enum EquipmentStatus {
-    AVAILABLE = 'available',
-    MAINTENANCE = 'maintenance',
-    BROKEN = 'broken',
+  AVAILABLE = 'available',
+  MAINTENANCE = 'maintenance',
+  BROKEN = 'broken',
 }
 
 export class CreateEquipmentDto {
-    @IsString()
-    name!: string;
+  @IsString()
+  name!: string;
 
-    @IsOptional()
-    @IsString()
-    equipmentCode?: string;
+  @IsOptional()
+  @IsString()
+  equipmentCode?: string;
 
-    @IsOptional()
-    @IsString()
-    code?: string;
+  @IsOptional()
+  @IsString()
+  code?: string;
 
-    @IsOptional()
-    @IsString()
-    category?: string;
+  @IsOptional()
+  @IsString()
+  category?: string;
 
-    @IsOptional()
-    @IsNumber()
-    @Min(1)
-    quantity?: number;
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  quantity?: number;
 
-    @IsOptional()
-    @IsString()
-    position?: string;
+  @IsOptional()
+  @IsInt()
+  gymRoomId?: number;
 
-    @IsDateString()
-    purchaseDate!: Date;
+  @IsOptional()
+  @IsInt()
+  facilityId?: number;
 
-    @IsOptional()
-    @IsNumber()
-    @Min(0)
-    purchasePrice?: number;
+  @IsOptional()
+  @IsString()
+  position?: string;
 
-    @IsOptional()
-    @IsNumber()
-    @Min(0)
-    cost?: number;
+  @IsDateString()
+  purchaseDate!: Date;
 
-    @IsOptional()
-    @IsDateString()
-    lastMaintenanceDate?: Date;
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  purchasePrice?: number;
 
-    @IsOptional()
-    @IsDateString()
-    lastMaintenance?: Date;
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  cost?: number;
 
-    @IsOptional()
-    @IsDateString()
-    nextMaintenanceDate?: Date;
+  @IsOptional()
+  @IsDateString()
+  lastMaintenanceDate?: Date;
 
-    @IsOptional()
-    @IsDateString()
-    nextMaintenance?: Date;
+  @IsOptional()
+  @IsDateString()
+  lastMaintenance?: Date;
 
-    @IsOptional()
-    @IsEnum(EquipmentStatus)
-    status?: EquipmentStatus;
+  @IsOptional()
+  @IsDateString()
+  nextMaintenanceDate?: Date;
+
+  @IsOptional()
+  @IsDateString()
+  nextMaintenance?: Date;
+
+  @IsOptional()
+  @IsEnum(EquipmentStatus)
+  status?: EquipmentStatus;
 }

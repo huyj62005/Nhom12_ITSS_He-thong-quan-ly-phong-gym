@@ -1,10 +1,15 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { CreateFeedbackDto } from './dto/create-feedback.dto';
 import { UpdateFeedbackDto } from './dto/update-feedback.dto';
 import { Feedback } from './entities/feedback.entity';
 import { Member } from '../members/entities/member.entity';
+import { GymRoom } from '../gym-rooms/entities/gym-room.entity';
 import { NotificationsService } from '../notifications/notifications.service';
 import { UserRole } from '../users/entities/user.entity';
 
@@ -16,6 +21,8 @@ type FeedbackPayload = Partial<CreateFeedbackDto> & {
   response?: string;
   resolvedAt?: string | Date;
   resolved_at?: string | Date;
+  gymRoomId?: number;
+  facilityId?: number;
 };
 
 @Injectable()
@@ -25,13 +32,22 @@ export class FeedbacksService {
     private readonly feedbacksRepository: Repository<Feedback>,
     @InjectRepository(Member)
     private readonly membersRepository: Repository<Member>,
+    @InjectRepository(GymRoom)
+    private readonly gymRoomsRepository: Repository<GymRoom>,
     private readonly notificationsService: NotificationsService,
   ) {}
 
   async create(createFeedbackDto: CreateFeedbackDto) {
     const payload = createFeedbackDto as FeedbackPayload;
+    const member = await this.findMemberOrFail(payload.memberId);
     const feedback = this.feedbacksRepository.create({
-      member: await this.findMemberOrFail(payload.memberId),
+      member,
+      gymRoom:
+        payload.gymRoomId || payload.facilityId
+          ? await this.findGymRoomOrFail(
+              payload.gymRoomId ?? payload.facilityId,
+            )
+          : member.gymRoom,
       title: payload.title,
       content: payload.content ?? '',
       category: payload.category,
@@ -40,16 +56,13 @@ export class FeedbacksService {
     });
 
     const savedFeedback = await this.feedbacksRepository.save(feedback);
-    await this.notificationsService.createForRoles(
-      [UserRole.OWNER],
-      {
-        title: 'Phản hồi mới',
-        message: `${savedFeedback.member?.fullName ?? 'Hội viên'} vừa gửi phản hồi ${savedFeedback.title ? `về ${savedFeedback.title}` : 'mới'}.`,
-        type: 'feedback_created',
-        targetRoute: '/feedback',
-        relatedEntityId: String(savedFeedback.id),
-      },
-    );
+    await this.notificationsService.createForRoles([UserRole.OWNER], {
+      title: 'Phản hồi mới',
+      message: `${savedFeedback.member?.fullName ?? 'Hội viên'} vừa gửi phản hồi ${savedFeedback.title ? `về ${savedFeedback.title}` : 'mới'}.`,
+      type: 'feedback_created',
+      targetRoute: '/feedback',
+      relatedEntityId: String(savedFeedback.id),
+    });
 
     return this.toFeedbackResponse(savedFeedback);
   }
@@ -59,7 +72,9 @@ export class FeedbacksService {
       relations: {
         member: {
           user: true,
+          gymRoom: true,
         },
+        gymRoom: true,
       },
       order: {
         createdAt: 'DESC',
@@ -79,13 +94,20 @@ export class FeedbacksService {
 
     if (payload.memberId !== undefined) {
       feedback.member = await this.findMemberOrFail(payload.memberId);
+      feedback.gymRoom = feedback.member.gymRoom;
+    }
+    if (payload.gymRoomId !== undefined || payload.facilityId !== undefined) {
+      feedback.gymRoom = await this.findGymRoomOrFail(
+        payload.gymRoomId ?? payload.facilityId,
+      );
     }
     if (payload.title !== undefined) feedback.title = payload.title;
     if (payload.content !== undefined) feedback.content = payload.content;
     if (payload.category !== undefined) feedback.category = payload.category;
     if (payload.priority !== undefined) feedback.priority = payload.priority;
     if (payload.status !== undefined) feedback.status = payload.status;
-    const adminReply = payload.adminReply ?? payload.admin_reply ?? payload.response;
+    const adminReply =
+      payload.adminReply ?? payload.admin_reply ?? payload.response;
     if (adminReply !== undefined) feedback.adminReply = adminReply;
     const resolvedAt = payload.resolvedAt ?? payload.resolved_at;
     if (resolvedAt !== undefined) {
@@ -97,13 +119,16 @@ export class FeedbacksService {
     const savedFeedback = await this.feedbacksRepository.save(feedback);
 
     if (adminReply !== undefined) {
-      await this.notificationsService.createForUser(savedFeedback.member?.user?.id, {
-        title: 'Yêu cầu của bạn đã được phản hồi',
-        message: 'Yêu cầu của bạn đã được phản hồi.',
-        type: 'feedback_replied',
-        targetRoute: '/feedback',
-        relatedEntityId: String(savedFeedback.id),
-      });
+      await this.notificationsService.createForUser(
+        savedFeedback.member?.user?.id,
+        {
+          title: 'Yêu cầu của bạn đã được phản hồi',
+          message: 'Yêu cầu của bạn đã được phản hồi.',
+          type: 'feedback_replied',
+          targetRoute: '/feedback',
+          relatedEntityId: String(savedFeedback.id),
+        },
+      );
     }
 
     return this.toFeedbackResponse(savedFeedback);
@@ -131,7 +156,9 @@ export class FeedbacksService {
       relations: {
         member: {
           user: true,
+          gymRoom: true,
         },
+        gymRoom: true,
       },
     });
 
@@ -153,6 +180,7 @@ export class FeedbacksService {
       },
       relations: {
         user: true,
+        gymRoom: true,
       },
     });
 
@@ -161,6 +189,24 @@ export class FeedbacksService {
     }
 
     return member;
+  }
+
+  private async findGymRoomOrFail(id?: number) {
+    if (!Number.isInteger(id) || !id || id <= 0) {
+      throw new BadRequestException('Gym room id is invalid');
+    }
+
+    const gymRoom = await this.gymRoomsRepository.findOne({
+      where: {
+        id,
+      },
+    });
+
+    if (!gymRoom) {
+      throw new NotFoundException('Gym room not found');
+    }
+
+    return gymRoom;
   }
 
   private toDateString(date?: Date | string) {
@@ -180,6 +226,26 @@ export class FeedbacksService {
       category: feedback.category,
       priority: feedback.priority ?? 'medium',
       status: feedback.status ?? 'pending',
+      gymRoomId: feedback.gymRoom?.id
+        ? String(feedback.gymRoom.id)
+        : feedback.member?.gymRoom?.id
+          ? String(feedback.member.gymRoom.id)
+          : '',
+      facilityId: feedback.gymRoom?.id
+        ? String(feedback.gymRoom.id)
+        : feedback.member?.gymRoom?.id
+          ? String(feedback.member.gymRoom.id)
+          : '',
+      gymRoomCode:
+        feedback.gymRoom?.code ?? feedback.member?.gymRoom?.code ?? '',
+      gymRoomName:
+        feedback.gymRoom?.name ?? feedback.member?.gymRoom?.name ?? '',
+      gymRoomDisplayName:
+        feedback.gymRoom || feedback.member?.gymRoom
+          ? `${feedback.gymRoom?.code ?? feedback.member?.gymRoom?.code ?? ''} - ${
+              feedback.gymRoom?.name ?? feedback.member?.gymRoom?.name ?? ''
+            }`
+          : '',
       adminReply: feedback.adminReply,
       response: feedback.adminReply,
       createdAt: this.toDateString(feedback.createdAt),

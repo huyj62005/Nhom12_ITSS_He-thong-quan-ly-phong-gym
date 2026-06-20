@@ -6,11 +6,18 @@ import { TrainingSchedule } from './entities/training-schedule.entity';
 import { Member } from '../members/entities/member.entity';
 import { MemberPackage } from '../member-packages/entities/member-package.entity';
 import { User } from '../users/entities/user.entity';
+import { GymRoom } from '../gym-rooms/entities/gym-room.entity';
 import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([TrainingSchedule, Member, MemberPackage, User]),
+    TypeOrmModule.forFeature([
+      TrainingSchedule,
+      Member,
+      MemberPackage,
+      User,
+      GymRoom,
+    ]),
     NotificationsModule,
   ],
   controllers: [TrainingSchedulesController],

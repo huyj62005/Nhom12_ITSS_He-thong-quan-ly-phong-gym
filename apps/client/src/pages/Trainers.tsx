@@ -32,6 +32,8 @@ interface StaffMember {
   experience: number;
   description: string;
   status: StaffStatus;
+  gymRoomId: string;
+  gymRoomName: string;
   avatar?: string;
 }
 
@@ -51,6 +53,8 @@ const emptyForm: StaffFormData = {
   experience: 0,
   description: "",
   status: "active",
+  gymRoomId: "",
+  gymRoomName: "",
   avatar: "",
   avatarUrl: "",
 };
@@ -70,6 +74,13 @@ type ApiUser = {
   avatarUrl?: string;
 };
 
+type ApiGymRoom = {
+  id?: number | string;
+  code?: string;
+  name?: string;
+  status?: string;
+};
+
 type ApiTrainerProfile = {
   id?: number | string;
   userId?: number | string;
@@ -82,6 +93,18 @@ type ApiTrainerProfile = {
   specialization?: string[] | string;
   status?: string;
   avatar?: string;
+  gymRoomId?: number | string;
+  gymRoomCode?: string;
+  gymRoomName?: string;
+  gymRoomDisplayName?: string;
+  gymRoom?: ApiGymRoom;
+};
+
+type ActiveGymRoom = {
+  id: string;
+  code: string;
+  name: string;
+  displayName: string;
 };
 
 const requestJson = async <T,>(
@@ -108,7 +131,7 @@ const mapApiTrainerToStaff = (trainer: ApiTrainerProfile): StaffMember => {
   const user = trainer.user;
   const specialties = Array.isArray(trainer.specialization)
     ? trainer.specialization.join(", ")
-    : trainer.specialization ?? trainer.specialties ?? "";
+    : (trainer.specialization ?? trainer.specialties ?? "");
   const staffType: StaffType = user?.role === "trainer" ? "trainer" : "manager";
 
   return {
@@ -122,12 +145,22 @@ const mapApiTrainerToStaff = (trainer: ApiTrainerProfile): StaffMember => {
     address: "",
     staffType,
     specialization: specialties,
-    experience: Number(trainer.experienceYears ?? trainer.experience_years ?? 0),
+    experience: Number(
+      trainer.experienceYears ?? trainer.experience_years ?? 0,
+    ),
     description: trainer.bio ?? "",
     status:
       trainer.status === "inactive" || user?.status === "inactive"
         ? "inactive"
         : "active",
+    gymRoomId: String(trainer.gymRoomId ?? trainer.gymRoom?.id ?? ""),
+    gymRoomName:
+      trainer.gymRoomDisplayName ??
+      (trainer.gymRoomCode || trainer.gymRoom?.code
+        ? `${trainer.gymRoomCode ?? trainer.gymRoom?.code} - ${
+            trainer.gymRoomName ?? trainer.gymRoom?.name ?? ""
+          }`
+        : (trainer.gymRoomName ?? trainer.gymRoom?.name ?? "")),
     avatar:
       trainer.avatar ||
       user?.avatar ||
@@ -149,6 +182,7 @@ const toApiTrainerPayload = (staff: StaffFormData & { userId?: string }) => ({
   experienceYears: Number(staff.experience) || 0,
   specialties: staff.specialization,
   status: staff.status,
+  gymRoomId: staff.gymRoomId ? Number(staff.gymRoomId) : null,
 });
 
 const getStaffTypeText = (type: StaffType) =>
@@ -171,21 +205,50 @@ export const Trainers: React.FC = () => {
   const [staff, setStaff] = useState<StaffMember[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [staffFilter, setStaffFilter] = useState<StaffFilter>("all");
+  const [branchFilter, setBranchFilter] = useState("all");
   const [showFormModal, setShowFormModal] = useState(false);
   const [editingStaff, setEditingStaff] = useState<StaffMember | null>(null);
   const [deleteStaff, setDeleteStaff] = useState<StaffMember | null>(null);
   const [formData, setFormData] = useState<StaffFormData>(emptyForm);
+  const [activeGymRooms, setActiveGymRooms] = useState<ActiveGymRoom[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     let isMounted = true;
 
-    requestJson<unknown>("/trainer-profiles")
-      .then((apiTrainers) => {
+    Promise.allSettled([
+      requestJson<unknown>("/trainer-profiles"),
+      requestJson<unknown>("/gym-branches"),
+    ])
+      .then(([trainersResult, roomsResult]) => {
         if (isMounted) {
+          const apiTrainers =
+            trainersResult.status === "fulfilled" ? trainersResult.value : [];
           setStaff(
             Array.isArray(apiTrainers)
               ? apiTrainers.map(mapApiTrainerToStaff)
+              : [],
+          );
+          const apiRooms =
+            roomsResult.status === "fulfilled" ? roomsResult.value : [];
+          setActiveGymRooms(
+            Array.isArray(apiRooms)
+              ? apiRooms
+                  .filter(
+                    (room): room is ApiGymRoom =>
+                      typeof room === "object" &&
+                      room !== null &&
+                      (room as ApiGymRoom).status !== "inactive",
+                  )
+                  .map((room) => ({
+                    id: String(room.id ?? ""),
+                    code: room.code ?? "",
+                    name: room.name ?? "",
+                    displayName: room.code
+                      ? `${room.code} - ${room.name ?? ""}`
+                      : (room.name ?? ""),
+                  }))
+                  .filter((room) => room.id && room.name)
               : [],
           );
         }
@@ -206,10 +269,11 @@ export const Trainers: React.FC = () => {
     const matchesSearch = item.name
       .toLowerCase()
       .includes(searchTerm.trim().toLowerCase());
-    const matchesType =
-      staffFilter === "all" || item.staffType === staffFilter;
+    const matchesType = staffFilter === "all" || item.staffType === staffFilter;
+    const matchesBranch =
+      branchFilter === "all" || item.gymRoomId === branchFilter;
 
-    return matchesSearch && matchesType;
+    return matchesSearch && matchesType && matchesBranch;
   });
 
   const openAddModal = () => {
@@ -233,6 +297,8 @@ export const Trainers: React.FC = () => {
       experience: item.experience,
       description: item.description,
       status: item.status,
+      gymRoomId: item.gymRoomId,
+      gymRoomName: item.gymRoomName,
       avatar: item.avatar || "",
       avatarUrl: item.avatar || "",
     });
@@ -271,6 +337,10 @@ export const Trainers: React.FC = () => {
         formData.name || "staff",
       )}`;
     const staffType: StaffType = isManager ? "trainer" : formData.staffType;
+    if (!formData.gymRoomId) {
+      window.alert("Vui lòng chọn cơ sở làm việc cho nhân sự!");
+      return;
+    }
 
     try {
       if (editingStaff) {
@@ -279,7 +349,11 @@ export const Trainers: React.FC = () => {
           {
             method: "PATCH",
             body: JSON.stringify(
-              toApiTrainerPayload({ ...formData, staffType, userId: editingStaff.userId }),
+              toApiTrainerPayload({
+                ...formData,
+                staffType,
+                userId: editingStaff.userId,
+              }),
             ),
           },
         );
@@ -295,7 +369,9 @@ export const Trainers: React.FC = () => {
               };
 
         setStaff((current) =>
-          current.map((item) => (item.id === editingStaff.id ? savedStaff : item)),
+          current.map((item) =>
+            item.id === editingStaff.id ? savedStaff : item,
+          ),
         );
       } else {
         const apiStaff = await requestJson<unknown>("/trainer-profiles", {
@@ -329,7 +405,9 @@ export const Trainers: React.FC = () => {
       await requestJson<unknown>(`/trainer-profiles/${deleteStaff.id}`, {
         method: "DELETE",
       });
-      setStaff((current) => current.filter((item) => item.id !== deleteStaff.id));
+      setStaff((current) =>
+        current.filter((item) => item.id !== deleteStaff.id),
+      );
       setDeleteStaff(null);
     } catch (error) {
       window.alert(
@@ -384,6 +462,18 @@ export const Trainers: React.FC = () => {
               <option value="all">Tất cả</option>
               <option value="manager">Nhân viên quản lý</option>
               <option value="trainer">PT/HLV</option>
+            </select>
+            <select
+              value={branchFilter}
+              onChange={(event) => setBranchFilter(event.target.value)}
+              className="px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-white min-w-[190px]"
+            >
+              <option value="all">Tất cả cơ sở</option>
+              {activeGymRooms.map((room) => (
+                <option key={room.id} value={room.id}>
+                  {room.displayName}
+                </option>
+              ))}
             </select>
           </div>
         </div>
@@ -442,6 +532,10 @@ export const Trainers: React.FC = () => {
                   <div className="flex items-center gap-2 text-sm text-gray-600">
                     <Phone size={16} />
                     <span>{item.phone}</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm text-gray-600">
+                    <Briefcase size={16} />
+                    <span>{item.gymRoomName || "Chưa gán cơ sở"}</span>
                   </div>
                 </div>
 
@@ -641,6 +735,30 @@ export const Trainers: React.FC = () => {
                       <option value="manager">Nhân viên quản lý</option>
                     )}
                     <option value="trainer">PT/HLV</option>
+                  </select>
+                </FormField>
+                <FormField label="Cơ sở" required>
+                  <select
+                    required
+                    value={formData.gymRoomId}
+                    onChange={(event) =>
+                      setFormData((current) => ({
+                        ...current,
+                        gymRoomId: event.target.value,
+                        gymRoomName:
+                          activeGymRooms.find(
+                            (room) => room.id === event.target.value,
+                          )?.displayName ?? "",
+                      }))
+                    }
+                    className={inputClass}
+                  >
+                    <option value="">Chưa gán cơ sở</option>
+                    {activeGymRooms.map((room) => (
+                      <option key={room.id} value={room.id}>
+                        {room.displayName}
+                      </option>
+                    ))}
                   </select>
                 </FormField>
                 <FormField label="Chuyên môn">

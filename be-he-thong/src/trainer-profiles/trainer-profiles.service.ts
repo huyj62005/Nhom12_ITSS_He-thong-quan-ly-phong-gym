@@ -1,10 +1,15 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { CreateTrainerProfileDto } from './dto/create-trainer-profile.dto';
 import { UpdateTrainerProfileDto } from './dto/update-trainer-profile.dto';
 import { TrainerProfile } from './entities/trainer-profile.entity';
 import { User, UserRole, UserStatus } from '../users/entities/user.entity';
+import { GymRoom } from '../gym-rooms/entities/gym-room.entity';
 
 type TrainerPayload = Partial<CreateTrainerProfileDto> & {
   name?: string;
@@ -13,6 +18,7 @@ type TrainerPayload = Partial<CreateTrainerProfileDto> & {
   phone?: string;
   staffType?: string;
   status?: string;
+  gymRoomId?: number | string | null;
 };
 
 @Injectable()
@@ -22,6 +28,8 @@ export class TrainerProfilesService {
     private readonly trainerProfilesRepository: Repository<TrainerProfile>,
     @InjectRepository(User)
     private readonly usersRepository: Repository<User>,
+    @InjectRepository(GymRoom)
+    private readonly gymRoomsRepository: Repository<GymRoom>,
   ) {}
 
   async create(createTrainerProfileDto: CreateTrainerProfileDto) {
@@ -37,6 +45,10 @@ export class TrainerProfilesService {
       rating: Number(payload.rating ?? 0),
       specialties: payload.specialties,
       status: payload.status ?? 'active',
+      gymRoom:
+        payload.gymRoomId !== undefined && payload.gymRoomId !== null
+          ? await this.findActiveGymRoomOrFail(Number(payload.gymRoomId))
+          : null,
     });
 
     return this.toTrainerResponse(
@@ -48,6 +60,7 @@ export class TrainerProfilesService {
     const trainerProfiles = await this.trainerProfilesRepository.find({
       relations: {
         user: true,
+        gymRoom: true,
       },
       order: {
         id: 'ASC',
@@ -74,16 +87,26 @@ export class TrainerProfilesService {
     if (payload.experienceYears !== undefined) {
       trainerProfile.experienceYears = Number(payload.experienceYears);
     }
-    if (payload.rating !== undefined) trainerProfile.rating = Number(payload.rating);
-    if (payload.specialties !== undefined) trainerProfile.specialties = payload.specialties;
+    if (payload.rating !== undefined)
+      trainerProfile.rating = Number(payload.rating);
+    if (payload.specialties !== undefined)
+      trainerProfile.specialties = payload.specialties;
     if (payload.status !== undefined) trainerProfile.status = payload.status;
+    if (payload.gymRoomId !== undefined) {
+      trainerProfile.gymRoom =
+        payload.gymRoomId === null || String(payload.gymRoomId) === ''
+          ? null
+          : await this.findActiveGymRoomOrFail(Number(payload.gymRoomId));
+    }
 
     if (trainerProfile.user) {
       if (payload.name !== undefined || payload.fullName !== undefined) {
         trainerProfile.user.fullName = payload.fullName ?? payload.name;
       }
-      if (payload.email !== undefined) trainerProfile.user.email = payload.email;
-      if (payload.phone !== undefined) trainerProfile.user.phone = payload.phone;
+      if (payload.email !== undefined)
+        trainerProfile.user.email = payload.email;
+      if (payload.phone !== undefined)
+        trainerProfile.user.phone = payload.phone;
       if (payload.staffType !== undefined) {
         trainerProfile.user.role =
           payload.staffType === 'manager' ? UserRole.MANAGER : UserRole.TRAINER;
@@ -118,7 +141,8 @@ export class TrainerProfilesService {
         email,
         password: '123456',
         phone: payload.phone,
-        role: payload.staffType === 'manager' ? UserRole.MANAGER : UserRole.TRAINER,
+        role:
+          payload.staffType === 'manager' ? UserRole.MANAGER : UserRole.TRAINER,
         status: UserStatus.ACTIVE,
       }),
     );
@@ -135,6 +159,7 @@ export class TrainerProfilesService {
       },
       relations: {
         user: true,
+        gymRoom: true,
       },
     });
 
@@ -159,6 +184,28 @@ export class TrainerProfilesService {
     return user;
   }
 
+  private async findActiveGymRoomOrFail(id: number) {
+    if (!Number.isInteger(id) || id <= 0) {
+      throw new BadRequestException('Gym room id is invalid');
+    }
+
+    const gymRoom = await this.gymRoomsRepository.findOne({
+      where: {
+        id,
+      },
+    });
+
+    if (!gymRoom) {
+      throw new NotFoundException('Gym room not found');
+    }
+
+    if (gymRoom.status !== 'active') {
+      throw new BadRequestException('Gym room is not active');
+    }
+
+    return gymRoom;
+  }
+
   private toTrainerResponse(trainerProfile: TrainerProfile) {
     return {
       id: trainerProfile.id,
@@ -175,6 +222,14 @@ export class TrainerProfilesService {
           }
         : undefined,
       bio: trainerProfile.bio ?? '',
+      gymRoomId: trainerProfile.gymRoom?.id
+        ? String(trainerProfile.gymRoom.id)
+        : '',
+      gymRoomCode: trainerProfile.gymRoom?.code ?? '',
+      gymRoomName: trainerProfile.gymRoom?.name ?? '',
+      gymRoomDisplayName: trainerProfile.gymRoom
+        ? `${trainerProfile.gymRoom.code} - ${trainerProfile.gymRoom.name}`
+        : '',
       experienceYears: Number(trainerProfile.experienceYears ?? 0),
       rating: Number(trainerProfile.rating ?? 0),
       specialties: trainerProfile.specialties ?? '',

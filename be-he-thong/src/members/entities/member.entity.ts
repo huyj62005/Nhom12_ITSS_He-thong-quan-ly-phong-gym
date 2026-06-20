@@ -9,6 +9,7 @@ import {
 } from 'typeorm';
 import { User } from '../../users/entities/user.entity';
 import { MemberPackage } from '../../member-packages/entities/member-package.entity';
+import { GymRoom } from '../../gym-rooms/entities/gym-room.entity';
 
 @Entity('members')
 export class Member {
@@ -25,6 +26,13 @@ export class Member {
   })
   @JoinColumn({ name: 'managed_by' })
   manager?: User;
+
+  @ManyToOne(() => GymRoom, {
+    nullable: true,
+    onDelete: 'SET NULL',
+  })
+  @JoinColumn({ name: 'facility_id' })
+  gymRoom?: GymRoom | null;
 
   @Column({ name: 'full_name' })
   fullName?: string;

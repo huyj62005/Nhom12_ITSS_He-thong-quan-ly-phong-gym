@@ -11,6 +11,7 @@ import {
   TrendingUp,
   MessageSquare,
   ClipboardList,
+  Building2,
 } from "lucide-react";
 
 interface NavItem {
@@ -49,6 +50,12 @@ const navItems: NavItem[] = [
     path: "/trainers",
     label: "Quản Lý Nhân Sự",
     icon: <Users size={20} />,
+    roles: ["owner", "manager"],
+  },
+  {
+    path: "/gym-rooms",
+    label: "Quản lý phòng tập",
+    icon: <Building2 size={20} />,
     roles: ["owner", "manager"],
   },
   {
