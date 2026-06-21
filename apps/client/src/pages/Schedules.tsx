@@ -13,6 +13,8 @@ import { DashboardLayout } from "../components/DashboardLayout";
 import { useAuth } from "../contexts/AuthContext";
 import { useGymData } from "../contexts/GymDataContext";
 import { Schedule, ScheduleApprovalHistoryEntry } from "../types";
+import { getScopedBranchFilter, getScopedGymRoomId } from "../utils/accessScope";
+import { isMemberPackageStillValid } from "../utils/membership";
 
 const API_BASE_URL = "http://localhost:3000";
 
@@ -22,6 +24,7 @@ type ApiUser = {
   full_name?: string;
   name?: string;
   email?: string;
+  role?: string;
 };
 
 type ApiMember = {
@@ -65,6 +68,10 @@ type ApiTrainerProfile = {
   userId?: number | string;
   user_id?: number | string;
   user?: ApiUser;
+  gymRoomId?: number | string;
+  gymRoom?: {
+    id?: number | string;
+  };
 };
 
 type BranchOption = {
@@ -87,6 +94,11 @@ type ScheduleForm = {
 type ReplacementForm = {
   schedule: Schedule | null;
   trainerId: string;
+  reason: string;
+};
+
+type RejectForm = {
+  schedule: Schedule | null;
   reason: string;
 };
 
@@ -287,12 +299,13 @@ const mapApiSchedule = (schedule: ApiSchedule): Schedule => {
 export const Schedules: React.FC = () => {
   const { user } = useAuth();
   const { members } = useGymData();
+  const scopedGymRoomId = getScopedGymRoomId(user);
   const isOwner = user?.role === "owner";
+  const isManager = user?.role === "manager";
   const isTrainer = user?.role === "trainer";
   const isMember = user?.role === "member";
-  const canCreateSchedule = !isOwner && !isTrainer;
-  const canUpdateScheduleStatus = !isOwner && !isTrainer;
   const [schedules, setSchedules] = useState<Schedule[]>([]);
+  const [hiddenScheduleIds, setHiddenScheduleIds] = useState<string[]>([]);
   const [trainers, setTrainers] = useState<ApiTrainerProfile[]>([]);
   const [branches, setBranches] = useState<BranchOption[]>([]);
   const [branchFilter, setBranchFilter] = useState("all");
@@ -305,6 +318,10 @@ export const Schedules: React.FC = () => {
   const [replacementForm, setReplacementForm] = useState<ReplacementForm>({
     schedule: null,
     trainerId: "",
+    reason: "",
+  });
+  const [rejectForm, setRejectForm] = useState<RejectForm>({
+    schedule: null,
     reason: "",
   });
   const currentMember = user
@@ -331,14 +348,30 @@ export const Schedules: React.FC = () => {
   const memberHasAssignedPt =
     currentMember?.hasActivePtPackage === true &&
     Boolean(currentMember.trainerId);
+  const memberHasActivePackage = isMemberPackageStillValid(currentMember);
+  const memberHasNonPtPackage =
+    memberHasActivePackage && currentMember?.currentPackage?.type !== "pt";
+  const memberCanCreateSchedule = memberHasAssignedPt || memberHasNonPtPackage;
+  const canCreateSchedule = isMember && memberCanCreateSchedule;
+  const memberDefaultScheduleType: Schedule["type"] = memberHasAssignedPt
+    ? "pt"
+    : "personal";
   const selectableMembers =
-    isMember && currentMember ? [currentMember] : members;
+    isMember && currentMember
+      ? [currentMember]
+      : members.filter(
+          (member) => !scopedGymRoomId || member.gymRoomId === scopedGymRoomId,
+        );
   const assignedTrainer = currentMember?.trainerId
     ? {
         id: currentMember.trainerId,
         name: currentMember.trainerName || currentMember.trainerId,
       }
     : null;
+  const getTrainerGymRoomId = (trainer: ApiTrainerProfile) =>
+    String(trainer.gymRoomId ?? trainer.gymRoom?.id ?? "");
+  const isTrainerProfileUser = (trainer: ApiTrainerProfile) =>
+    trainer.user?.role === "trainer";
   const availableTrainers =
     isMember && scheduleForm.type === "pt"
       ? assignedTrainer
@@ -350,7 +383,12 @@ export const Schedules: React.FC = () => {
             },
           ]
         : []
-      : trainers;
+      : trainers.filter(
+          (trainer) =>
+            isTrainerProfileUser(trainer) &&
+            (!scopedGymRoomId ||
+              getTrainerGymRoomId(trainer) === scopedGymRoomId),
+        );
 
   useEffect(() => {
     let isMounted = true;
@@ -442,6 +480,17 @@ export const Schedules: React.FC = () => {
     }
   }, [currentMember?.trainerId, isMember, scheduleForm.type]);
 
+  useEffect(() => {
+    if (!isMember) return;
+
+    setScheduleForm((current) => ({
+      ...current,
+      type: memberDefaultScheduleType,
+      trainerId:
+        memberDefaultScheduleType === "pt" ? (currentMember?.trainerId ?? "") : "",
+    }));
+  }, [currentMember?.trainerId, isMember, memberDefaultScheduleType]);
+
   const visibleSchedules = isTrainer
     ? schedules.filter((schedule) =>
         schedule.trainerId
@@ -452,16 +501,40 @@ export const Schedules: React.FC = () => {
       ? schedules.filter((schedule) =>
           currentMemberIds.includes(schedule.memberId),
         )
-      : schedules;
+      : schedules.filter(
+          (schedule) =>
+            !scopedGymRoomId || schedule.gymRoomId === scopedGymRoomId,
+        );
   const filteredSchedules = visibleSchedules.filter(
     (schedule) =>
+      !hiddenScheduleIds.includes(schedule.id) &&
       schedule.date === selectedDate &&
-      (branchFilter === "all" || schedule.gymRoomId === branchFilter),
+      (getScopedBranchFilter(branchFilter, scopedGymRoomId) === "all" ||
+        schedule.gymRoomId ===
+          getScopedBranchFilter(branchFilter, scopedGymRoomId)),
   );
+  const visibleBranches = scopedGymRoomId
+    ? branches.filter((branch) => branch.id === scopedGymRoomId)
+    : branches;
+  const getReplacementTrainerOptions = (schedule: Schedule | null) => {
+    const scheduleGymRoomId = schedule?.gymRoomId ?? scopedGymRoomId;
+
+    return trainers.filter((trainer) => {
+      const trainerUserId = getTrainerUserId(trainer);
+      return (
+        trainerUserId &&
+        trainerUserId !== schedule?.trainerId &&
+        isTrainerProfileUser(trainer) &&
+        (!scheduleGymRoomId || getTrainerGymRoomId(trainer) === scheduleGymRoomId)
+      );
+    });
+  };
 
   const handleCreateSchedule = async (event: React.FormEvent) => {
     event.preventDefault();
-    const scheduleType: Schedule["type"] = isMember ? "pt" : scheduleForm.type;
+    const scheduleType: Schedule["type"] = isMember
+      ? memberDefaultScheduleType
+      : scheduleForm.type;
     const trainerId =
       isMember && scheduleType === "pt"
         ? currentMember?.trainerId
@@ -475,6 +548,12 @@ export const Schedules: React.FC = () => {
     if (isMember && scheduleType === "pt" && !memberHasAssignedPt) {
       window.alert(
         "Bạn chưa được phân công PT. Vui lòng đăng ký gói PT hoặc liên hệ quản lý.",
+      );
+      return;
+    }
+    if (isMember && scheduleType !== "pt" && !memberHasNonPtPackage) {
+      window.alert(
+        "Bạn cần có gói tập còn hiệu lực để đặt lịch đến phòng gym.",
       );
       return;
     }
@@ -514,6 +593,7 @@ export const Schedules: React.FC = () => {
       setShowModal(false);
       setScheduleForm({
         ...emptyScheduleForm(),
+        type: memberDefaultScheduleType,
         memberId: selectableMembers[0]?.id ?? "",
         date: selectedDate,
       });
@@ -555,24 +635,46 @@ export const Schedules: React.FC = () => {
       );
     });
 
-  const rejectSchedule = (schedule: Schedule) => {
-    const reason = window.prompt("Nhập lý do từ chối lịch tập:");
-    if (reason === null) return;
-
-    updateScheduleStatus(schedule, "rejected", {
-      approvalAction: "rejected",
-      approvalReason: reason.trim() || "PT từ chối lịch tập",
-    }).catch((error) => {
-      window.alert(
-        error instanceof Error ? error.message : "Không thể từ chối lịch.",
-      );
+  const openRejectModal = (schedule: Schedule) => {
+    setRejectForm({
+      schedule,
+      reason: "",
     });
   };
 
+  const closeRejectModal = () => {
+    setRejectForm({
+      schedule: null,
+      reason: "",
+    });
+  };
+
+  const submitRejectSchedule = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!rejectForm.schedule) return;
+
+    const reason = rejectForm.reason.trim();
+    if (!reason) {
+      window.alert("Vui lòng nhập lý do từ chối lịch tập.");
+      return;
+    }
+
+    try {
+      await updateScheduleStatus(rejectForm.schedule, "rejected", {
+        approvalAction: "rejected",
+        approvalReason: reason,
+      });
+      closeRejectModal();
+    } catch (error) {
+      window.alert(
+        error instanceof Error ? error.message : "Không thể từ chối lịch.",
+      );
+    }
+  };
+
   const openReplacementModal = (schedule: Schedule) => {
-    const firstReplacementTrainer = trainers.find(
-      (trainer) => getTrainerUserId(trainer) !== schedule.trainerId,
-    );
+    const replacementTrainerOptions = getReplacementTrainerOptions(schedule);
+    const firstReplacementTrainer = replacementTrainerOptions[0];
 
     setReplacementForm({
       schedule,
@@ -619,6 +721,12 @@ export const Schedules: React.FC = () => {
         error instanceof Error ? error.message : "Không thể hủy lịch.",
       );
     });
+  };
+
+  const hideSchedule = (schedule: Schedule) => {
+    setHiddenScheduleIds((current) =>
+      current.includes(schedule.id) ? current : [...current, schedule.id],
+    );
   };
 
   const getStatusColor = (status: string) => {
@@ -700,12 +808,12 @@ export const Schedules: React.FC = () => {
               className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
             <select
-              value={branchFilter}
+              value={scopedGymRoomId ?? branchFilter}
               onChange={(event) => setBranchFilter(event.target.value)}
               className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
             >
-              <option value="all">Tất cả cơ sở</option>
-              {branches.map((branch) => (
+              {!scopedGymRoomId && <option value="all">Tất cả cơ sở</option>}
+              {visibleBranches.map((branch) => (
                 <option key={branch.id} value={branch.id}>
                   {branch.displayName}
                 </option>
@@ -734,8 +842,12 @@ export const Schedules: React.FC = () => {
                   isMember &&
                   schedule.type === "pt" &&
                   schedule.status === "rejected";
-                const canCloseSchedule =
-                  canUpdateScheduleStatus && schedule.status === "scheduled";
+                const canConfirmArrival =
+                  (isOwner || isManager) && schedule.status === "scheduled";
+                const canHideCancelledPtSchedule =
+                  (isOwner || isManager) &&
+                  schedule.type === "pt" &&
+                  schedule.status === "cancelled";
 
                 return (
                   <div
@@ -813,7 +925,8 @@ export const Schedules: React.FC = () => {
 
                       {(canTrainerRespond ||
                         canMemberResolveRejected ||
-                        canCloseSchedule) && (
+                        canConfirmArrival ||
+                        canHideCancelledPtSchedule) && (
                         <div className="flex flex-col gap-2">
                           {canTrainerRespond && (
                             <>
@@ -827,7 +940,7 @@ export const Schedules: React.FC = () => {
                               </button>
                               <button
                                 type="button"
-                                onClick={() => rejectSchedule(schedule)}
+                                onClick={() => openRejectModal(schedule)}
                                 className="inline-flex items-center justify-center gap-1 rounded bg-red-50 px-3 py-1.5 text-sm text-red-700 hover:bg-red-100"
                               >
                                 <XCircle size={15} />
@@ -856,45 +969,35 @@ export const Schedules: React.FC = () => {
                             </>
                           )}
 
-                          {canCloseSchedule && (
-                            <>
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  updateScheduleStatus(
-                                    schedule,
-                                    "completed",
-                                  ).catch((error) => {
-                                    window.alert(
-                                      error instanceof Error
-                                        ? error.message
-                                        : "Không thể hoàn thành lịch.",
-                                    );
-                                  })
-                                }
-                                className="rounded bg-green-50 px-3 py-1.5 text-sm text-green-700 hover:bg-green-100"
-                              >
-                                Hoàn thành
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  updateScheduleStatus(
-                                    schedule,
-                                    "cancelled",
-                                  ).catch((error) => {
-                                    window.alert(
-                                      error instanceof Error
-                                        ? error.message
-                                        : "Không thể hủy lịch.",
-                                    );
-                                  })
-                                }
-                                className="rounded bg-red-50 px-3 py-1.5 text-sm text-red-700 hover:bg-red-100"
-                              >
-                                Hủy
-                              </button>
-                            </>
+                          {canConfirmArrival && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                updateScheduleStatus(
+                                  schedule,
+                                  "completed",
+                                ).catch((error) => {
+                                  window.alert(
+                                    error instanceof Error
+                                      ? error.message
+                                      : "Không thể xác nhận hội viên đã đến.",
+                                  );
+                                })
+                              }
+                              className="rounded bg-green-50 px-3 py-1.5 text-sm text-green-700 hover:bg-green-100"
+                            >
+                              Đã đến
+                            </button>
+                          )}
+
+                          {canHideCancelledPtSchedule && (
+                            <button
+                              type="button"
+                              onClick={() => hideSchedule(schedule)}
+                              className="rounded bg-gray-100 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-200"
+                            >
+                              Ẩn lịch
+                            </button>
                           )}
                         </div>
                       )}
@@ -1066,17 +1169,16 @@ export const Schedules: React.FC = () => {
                 />
               </FormField>
 
-              {isMember && !memberHasAssignedPt && (
+              {isMember && !memberCanCreateSchedule && (
                 <p className="text-sm text-gray-500">
-                  Bạn chưa được phân công PT. Vui lòng đăng ký gói PT hoặc liên
-                  hệ quản lý.
+                  Bạn cần có gói tập còn hiệu lực để đặt lịch.
                 </p>
               )}
 
               <div className="flex gap-3 pt-4">
                 <button
                   type="submit"
-                  disabled={isMember && !memberHasAssignedPt}
+                  disabled={isMember && !memberCanCreateSchedule}
                   className="flex-1 bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 transition-colors"
                 >
                   Đặt lịch
@@ -1085,6 +1187,76 @@ export const Schedules: React.FC = () => {
                   type="button"
                   onClick={() => setShowModal(false)}
                   className="flex-1 bg-gray-200 text-gray-700 py-2 rounded-lg hover:bg-gray-300 transition-colors"
+                >
+                  Hủy
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {rejectForm.schedule && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg p-6 max-w-lg w-full">
+            <div className="mb-6 flex items-center justify-between">
+              <div>
+                <h2 className="text-xl font-bold text-gray-900">
+                  Từ chối lịch tập
+                </h2>
+                <p className="mt-1 text-sm text-gray-500">
+                  Vui lòng nhập lý do để hội viên biết và chọn hướng xử lý tiếp theo.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={closeRejectModal}
+                className="text-gray-500 hover:text-gray-700"
+                aria-label="Đóng"
+              >
+                x
+              </button>
+            </div>
+
+            <form className="space-y-4" onSubmit={submitRejectSchedule}>
+              <div className="rounded-lg border border-red-100 bg-red-50 p-3">
+                <p className="text-sm font-semibold text-red-900">
+                  {rejectForm.schedule.memberName}
+                </p>
+                <p className="mt-1 text-sm text-red-800">
+                  {rejectForm.schedule.date} | {rejectForm.schedule.startTime} -{" "}
+                  {rejectForm.schedule.endTime}
+                </p>
+              </div>
+
+              <FormField label="Lý do từ chối">
+                <textarea
+                  required
+                  value={rejectForm.reason}
+                  onChange={(event) =>
+                    setRejectForm((current) => ({
+                      ...current,
+                      reason: event.target.value,
+                    }))
+                  }
+                  className={inputClass}
+                  rows={4}
+                  placeholder="Ví dụ: PT bận lịch cá nhân vào khung giờ này"
+                />
+              </FormField>
+
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="submit"
+                  disabled={!rejectForm.reason.trim()}
+                  className="flex-1 rounded-lg bg-red-600 py-2 text-white hover:bg-red-700 disabled:bg-red-300 disabled:cursor-not-allowed"
+                >
+                  Xác nhận từ chối
+                </button>
+                <button
+                  type="button"
+                  onClick={closeRejectModal}
+                  className="flex-1 rounded-lg bg-gray-200 py-2 text-gray-700 hover:bg-gray-300"
                 >
                   Hủy
                 </button>
@@ -1130,15 +1302,8 @@ export const Schedules: React.FC = () => {
                   className={inputClass}
                 >
                   <option value="">Chọn PT</option>
-                  {trainers
-                    .filter((trainer) => {
-                      const trainerUserId = getTrainerUserId(trainer);
-                      return (
-                        trainerUserId &&
-                        trainerUserId !== replacementForm.schedule?.trainerId
-                      );
-                    })
-                    .map((trainer) => {
+                  {getReplacementTrainerOptions(replacementForm.schedule).map(
+                    (trainer) => {
                       const trainerUserId = getTrainerUserId(trainer);
                       return (
                         <option key={trainer.id} value={trainerUserId}>
@@ -1147,7 +1312,8 @@ export const Schedules: React.FC = () => {
                             trainer.id}
                         </option>
                       );
-                    })}
+                    },
+                  )}
                 </select>
               </FormField>
 

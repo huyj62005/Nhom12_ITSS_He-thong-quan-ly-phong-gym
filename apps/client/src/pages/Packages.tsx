@@ -88,7 +88,7 @@ export const Packages: React.FC = () => {
   const [registrationNote, setRegistrationNote] = useState("");
   const [isRegistering, setIsRegistering] = useState(false);
 
-  const canManagePackages = user?.role === "owner" || user?.role === "manager";
+  const canManagePackages = user?.role === "owner";
   const canRegisterPackage = user?.role === "member";
   const currentMember = user
     ? members.find(

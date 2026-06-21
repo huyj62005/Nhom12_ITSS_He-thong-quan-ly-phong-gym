@@ -5,7 +5,6 @@ import {
   Plus,
   Search,
   Edit,
-  Trash2,
   Eye,
   Upload,
   X,
@@ -15,6 +14,8 @@ import {
 } from "lucide-react";
 import { Member } from "../types";
 import { getPackageDisplayName } from "../utils/packageNames";
+import { useAuth } from "../contexts/AuthContext";
+import { getScopedBranchFilter, getScopedGymRoomId } from "../utils/accessScope";
 
 type StatusFilter = "all" | "active" | "expired";
 
@@ -96,7 +97,9 @@ interface ToastState {
 }
 
 export const Members: React.FC = () => {
-  const { members, addMember, updateMember, deleteMember } = useGymData();
+  const { members, addMember, updateMember } = useGymData();
+  const { user } = useAuth();
+  const scopedGymRoomId = getScopedGymRoomId(user);
 
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
@@ -106,7 +109,6 @@ export const Members: React.FC = () => {
   const [showAddModal, setShowAddModal] = useState(false);
   const [viewMember, setViewMember] = useState<Member | null>(null);
   const [editMember, setEditMember] = useState<Member | null>(null);
-  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
   const [formData, setFormData] = useState<MemberFormData>(emptyForm);
   const [avatarPreview, setAvatarPreview] = useState("");
@@ -159,6 +161,10 @@ export const Members: React.FC = () => {
   }, []);
 
   const filteredMembers = members.filter((m) => {
+    const effectiveBranchFilter = getScopedBranchFilter(
+      branchFilter,
+      scopedGymRoomId,
+    );
     const q = searchTerm.toLowerCase();
     const matchesSearch =
       !q ||
@@ -170,9 +176,12 @@ export const Members: React.FC = () => {
       m.membershipStatus === statusFilter ||
       (statusFilter === "expired" && !m.currentPackage);
     const matchesBranch =
-      branchFilter === "all" || m.gymRoomId === branchFilter;
+      effectiveBranchFilter === "all" || m.gymRoomId === effectiveBranchFilter;
     return matchesSearch && matchesStatus && matchesBranch;
   });
+  const visibleBranches = scopedGymRoomId
+    ? branches.filter((branch) => branch.id === scopedGymRoomId)
+    : branches;
 
   const handleAvatarChange = (
     e: React.ChangeEvent<HTMLInputElement>,
@@ -191,7 +200,7 @@ export const Members: React.FC = () => {
   };
 
   const openAddModal = () => {
-    setFormData(emptyForm);
+    setFormData({ ...emptyForm, gymRoomId: scopedGymRoomId ?? "" });
     setAvatarPreview("");
     setShowAddModal(true);
   };
@@ -206,7 +215,7 @@ export const Members: React.FC = () => {
       gender: member.gender,
       address: member.address,
       avatarUrl: member.avatar || "",
-      gymRoomId: member.gymRoomId || "",
+      gymRoomId: scopedGymRoomId ?? member.gymRoomId ?? "",
       membershipStatus: member.membershipStatus,
     });
     setEditAvatarPreview(member.avatar || "");
@@ -227,7 +236,7 @@ export const Members: React.FC = () => {
       dateOfBirth: formData.dateOfBirth,
       gender: formData.gender,
       address: formData.address,
-      gymRoomId: formData.gymRoomId,
+      gymRoomId: scopedGymRoomId ?? formData.gymRoomId,
       membershipStatus: "expired",
       joinDate: new Date().toISOString().slice(0, 10),
       avatar:
@@ -270,18 +279,12 @@ export const Members: React.FC = () => {
       dateOfBirth: editFormData.dateOfBirth,
       gender: editFormData.gender,
       address: editFormData.address,
-      gymRoomId: editFormData.gymRoomId,
+      gymRoomId: scopedGymRoomId ?? editFormData.gymRoomId,
       membershipStatus: editFormData.membershipStatus,
       ...(avatar ? { avatar } : {}),
     });
     setEditMember(null);
     showToast("Cập nhật hội viên thành công!", "success");
-  };
-
-  const handleDelete = async (id: string) => {
-    await deleteMember(id);
-    setDeleteConfirmId(null);
-    showToast("Đã xóa hội viên!", "success");
   };
 
   const AvatarUpload = ({
@@ -417,12 +420,12 @@ export const Members: React.FC = () => {
                 <option value="expired">Hết hạn / Chưa có gói</option>
               </select>
               <select
-                value={branchFilter}
+                value={scopedGymRoomId ?? branchFilter}
                 onChange={(e) => setBranchFilter(e.target.value)}
                 className="px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-white min-w-[190px]"
               >
-                <option value="all">Tất cả cơ sở</option>
-                {branches.map((branch) => (
+                {!scopedGymRoomId && <option value="all">Tất cả cơ sở</option>}
+                {visibleBranches.map((branch) => (
                   <option key={branch.id} value={branch.id}>
                     {branch.displayName}
                   </option>
@@ -562,13 +565,6 @@ export const Members: React.FC = () => {
                           >
                             <Edit size={17} />
                           </button>
-                          <button
-                            onClick={() => setDeleteConfirmId(member.id)}
-                            className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                            title="Xóa"
-                          >
-                            <Trash2 size={17} />
-                          </button>
                         </div>
                       </td>
                     </tr>
@@ -694,14 +690,14 @@ export const Members: React.FC = () => {
                     Cơ sở
                   </label>
                   <select
-                    value={formData.gymRoomId}
+                    value={scopedGymRoomId ?? formData.gymRoomId}
                     onChange={(e) =>
                       setFormData((f) => ({ ...f, gymRoomId: e.target.value }))
                     }
                     className={inputCls}
                   >
-                    <option value="">Tự phân bổ</option>
-                    {branches.map((branch) => (
+                    {!scopedGymRoomId && <option value="">Tự phân bổ</option>}
+                    {visibleBranches.map((branch) => (
                       <option key={branch.id} value={branch.id}>
                         {branch.displayName}
                       </option>
@@ -869,7 +865,7 @@ export const Members: React.FC = () => {
                     Cơ sở
                   </label>
                   <select
-                    value={editFormData.gymRoomId}
+                    value={scopedGymRoomId ?? editFormData.gymRoomId}
                     onChange={(e) =>
                       setEditFormData((f) => ({
                         ...f,
@@ -878,7 +874,7 @@ export const Members: React.FC = () => {
                     }
                     className={inputCls}
                   >
-                    {branches.map((branch) => (
+                    {visibleBranches.map((branch) => (
                       <option key={branch.id} value={branch.id}>
                         {branch.displayName}
                       </option>
@@ -1059,45 +1055,6 @@ export const Members: React.FC = () => {
         </div>
       )}
 
-      {/* Delete Confirm */}
-      {deleteConfirmId && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full p-6">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center flex-shrink-0">
-                <Trash2 size={20} className="text-red-600" />
-              </div>
-              <div>
-                <h3 className="font-bold text-gray-900">Xác nhận xóa</h3>
-                <p className="text-sm text-gray-500">
-                  Hành động này không thể hoàn tác
-                </p>
-              </div>
-            </div>
-            <p className="text-sm text-gray-600 mb-5">
-              Bạn có chắc chắn muốn xóa hội viên{" "}
-              <strong>
-                {members.find((m) => m.id === deleteConfirmId)?.name}
-              </strong>
-              ?
-            </p>
-            <div className="flex gap-3">
-              <button
-                onClick={() => handleDelete(deleteConfirmId)}
-                className="flex-1 py-2.5 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-medium text-sm"
-              >
-                Xóa
-              </button>
-              <button
-                onClick={() => setDeleteConfirmId(null)}
-                className="flex-1 py-2.5 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors font-medium text-sm"
-              >
-                Hủy
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </DashboardLayout>
   );
 };

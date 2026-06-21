@@ -10,6 +10,8 @@ import {
   Trash2,
 } from "lucide-react";
 import { Equipment } from "../types";
+import { useAuth } from "../contexts/AuthContext";
+import { getScopedBranchFilter, getScopedGymRoomId } from "../utils/accessScope";
 
 type EquipmentForm = {
   equipmentCode: string;
@@ -72,6 +74,8 @@ const emptyEquipmentForm: EquipmentForm = {
 };
 
 export const EquipmentPage: React.FC = () => {
+  const { user } = useAuth();
+  const scopedGymRoomId = getScopedGymRoomId(user);
   const [equipment, setEquipment] = useState<Equipment[]>([]);
   const [showModal, setShowModal] = useState(false);
   const [action, setAction] = useState<"add" | "edit">("add");
@@ -340,7 +344,7 @@ export const EquipmentPage: React.FC = () => {
   const openAddModal = () => {
     setAction("add");
     setSelectedEquipment(null);
-    setEquipmentForm(emptyEquipmentForm);
+    setEquipmentForm({ ...emptyEquipmentForm, gymRoomId: scopedGymRoomId ?? "" });
     setShowModal(true);
   };
 
@@ -356,7 +360,7 @@ export const EquipmentPage: React.FC = () => {
       nextMaintenance: item.nextMaintenance ?? "",
       price: String(item.cost),
       status: item.status,
-      gymRoomId: item.gymRoomId ?? "",
+      gymRoomId: scopedGymRoomId ?? item.gymRoomId ?? "",
     });
     setShowModal(true);
   };
@@ -379,7 +383,7 @@ export const EquipmentPage: React.FC = () => {
       purchaseDate: equipmentForm.purchaseDate,
       cost: Number(equipmentForm.price),
       status: equipmentForm.status,
-      gymRoomId: equipmentForm.gymRoomId,
+      gymRoomId: scopedGymRoomId ?? equipmentForm.gymRoomId,
     };
 
     if (equipmentForm.lastMaintenance) {
@@ -395,7 +399,7 @@ export const EquipmentPage: React.FC = () => {
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!equipmentForm.gymRoomId) {
+    if (!(scopedGymRoomId ?? equipmentForm.gymRoomId)) {
       window.alert("Vui lòng chọn cơ sở cho thiết bị!");
       return;
     }
@@ -456,13 +460,19 @@ export const EquipmentPage: React.FC = () => {
     }
   };
 
-  const availableCount = equipment.filter(
+  const scopedEquipment = equipment.filter(
+    (item) => !scopedGymRoomId || item.gymRoomId === scopedGymRoomId,
+  );
+  const visibleBranches = scopedGymRoomId
+    ? branches.filter((branch) => branch.id === scopedGymRoomId)
+    : branches;
+  const availableCount = scopedEquipment.filter(
     (e) => e.status === "available" && !isMaintenanceDueSoon(e),
   ).length;
-  const maintenanceCount = equipment.filter(
+  const maintenanceCount = scopedEquipment.filter(
     (e) => e.status === "maintenance" || isMaintenanceDueSoon(e),
   ).length;
-  const brokenCount = equipment.filter((e) => e.status === "broken").length;
+  const brokenCount = scopedEquipment.filter((e) => e.status === "broken").length;
   const categoryOptions = Array.from(
     new Set(equipment.map((item) => item.category).filter(Boolean)),
   ).sort((a, b) => a.localeCompare(b));
@@ -475,6 +485,10 @@ export const EquipmentPage: React.FC = () => {
     branchFilter !== "all" ||
     Boolean(searchTerm.trim());
   const filteredEquipment = equipment.filter((item) => {
+    const effectiveBranchFilter = getScopedBranchFilter(
+      branchFilter,
+      scopedGymRoomId,
+    );
     const matchesCategory =
       categoryFilter === "all" || item.category === categoryFilter;
     const matchesStatus =
@@ -484,7 +498,7 @@ export const EquipmentPage: React.FC = () => {
           ? isMaintenanceDueSoon(item)
           : item.status === statusFilter;
     const matchesBranch =
-      branchFilter === "all" || item.gymRoomId === branchFilter;
+      effectiveBranchFilter === "all" || item.gymRoomId === effectiveBranchFilter;
     const normalizedSearch = searchTerm.trim().toLowerCase();
     const matchesSearch =
       !normalizedSearch ||
@@ -560,12 +574,12 @@ export const EquipmentPage: React.FC = () => {
                   Xóa bộ lọc
                 </button>
                 <select
-                  value={branchFilter}
+                  value={scopedGymRoomId ?? branchFilter}
                   onChange={(event) => setBranchFilter(event.target.value)}
                   className="min-w-[190px] px-3 py-2 border border-gray-300 rounded-lg bg-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
-                  <option value="all">Tất cả cơ sở</option>
-                  {branches.map((branch) => (
+                  {!scopedGymRoomId && <option value="all">Tất cả cơ sở</option>}
+                  {visibleBranches.map((branch) => (
                     <option key={branch.id} value={branch.id}>
                       {branch.displayName}
                     </option>
@@ -858,7 +872,7 @@ export const EquipmentPage: React.FC = () => {
                   </label>
                   <select
                     id="equipment-branch"
-                    value={equipmentForm.gymRoomId}
+                    value={scopedGymRoomId ?? equipmentForm.gymRoomId}
                     onChange={(event) =>
                       setEquipmentForm((prev) => ({
                         ...prev,
@@ -868,8 +882,8 @@ export const EquipmentPage: React.FC = () => {
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     required
                   >
-                    <option value="">Chọn cơ sở</option>
-                    {branches.map((branch) => (
+                    {!scopedGymRoomId && <option value="">Chọn cơ sở</option>}
+                    {visibleBranches.map((branch) => (
                       <option key={branch.id} value={branch.id}>
                         {branch.displayName}
                       </option>

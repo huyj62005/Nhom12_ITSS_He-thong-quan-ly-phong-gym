@@ -316,14 +316,16 @@ export class GymRoomsService {
     });
 
     const changedEquipments: Equipment[] = [];
-    equipments.forEach((equipment, index) => {
-      const targetGymRoom = activeGymRooms[index % activeGymRooms.length];
-      if (equipment.gymRoom?.id !== targetGymRoom.id) {
-        equipment.gymRoom = targetGymRoom;
-        equipment.position = targetGymRoom.code ?? `CS${targetGymRoom.id}`;
-        changedEquipments.push(equipment);
-      }
-    });
+    equipments
+      .filter((equipment) => !equipment.gymRoom?.id)
+      .forEach((equipment, index) => {
+        const targetGymRoom = activeGymRooms[index % activeGymRooms.length];
+        if (equipment.gymRoom?.id !== targetGymRoom.id) {
+          equipment.gymRoom = targetGymRoom;
+          equipment.position = targetGymRoom.code ?? `CS${targetGymRoom.id}`;
+          changedEquipments.push(equipment);
+        }
+      });
 
     if (changedEquipments.length > 0) {
       await this.equipmentsRepository.save(changedEquipments);

@@ -87,7 +87,7 @@ export const router = createBrowserRouter([
   {
     path: "/gym-rooms",
     element: (
-      <ProtectedRoute allowedRoles={["owner", "manager"]}>
+      <ProtectedRoute allowedRoles={["owner"]}>
         <GymRooms />
       </ProtectedRoute>
     ),

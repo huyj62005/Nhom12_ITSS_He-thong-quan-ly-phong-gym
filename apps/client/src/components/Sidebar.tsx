@@ -13,6 +13,7 @@ import {
   ClipboardList,
   Building2,
 } from "lucide-react";
+import { isMemberPackageStillValid } from "../utils/membership";
 
 interface NavItem {
   path: string;
@@ -56,7 +57,7 @@ const navItems: NavItem[] = [
     path: "/gym-rooms",
     label: "Quản lý phòng tập",
     icon: <Building2 size={20} />,
-    roles: ["owner", "manager"],
+    roles: ["owner"],
   },
   {
     path: "/progress",
@@ -113,6 +114,7 @@ export const Sidebar: React.FC = () => {
   const memberHasActivePtPackage =
     currentMember?.hasActivePtPackage === true &&
     Boolean(currentMember.trainerId);
+  const memberHasActivePackage = isMemberPackageStillValid(currentMember);
 
   const filteredNavItems = navItems.filter((item) => {
     if (!item.roles.includes(user?.role || "")) {
@@ -120,7 +122,7 @@ export const Sidebar: React.FC = () => {
     }
 
     if (user?.role === "member" && item.path === "/progress") {
-      return Boolean(memberHasActivePtPackage);
+      return memberHasActivePackage || Boolean(memberHasActivePtPackage);
     }
 
     return true;

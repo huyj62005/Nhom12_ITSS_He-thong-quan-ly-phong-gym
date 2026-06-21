@@ -11,6 +11,7 @@ import {
 import { Feedback } from "../types";
 import { useAuth } from "../contexts/AuthContext";
 import { useGymData } from "../contexts/GymDataContext";
+import { getScopedBranchFilter, getScopedGymRoomId } from "../utils/accessScope";
 
 const API_BASE_URL = "http://localhost:3000";
 
@@ -145,6 +146,7 @@ const mapApiFeedback = (feedback: ApiFeedback): Feedback => {
 export const FeedbackPage: React.FC = () => {
   const { user } = useAuth();
   const { members } = useGymData();
+  const scopedGymRoomId = getScopedGymRoomId(user);
   const [feedbacks, setFeedbacks] = useState<Feedback[]>([]);
   const [filterStatus, setFilterStatus] = useState<string>("all");
   const [branchFilter, setBranchFilter] = useState("all");
@@ -215,9 +217,13 @@ export const FeedbackPage: React.FC = () => {
   // Member chỉ nhìn thấy phản hồi của chính họ
   // Owner/Manager nhìn thấy tất cả
   const filteredFeedbacks = feedbacks.filter((fb) => {
+    const effectiveBranchFilter = getScopedBranchFilter(
+      branchFilter,
+      scopedGymRoomId,
+    );
     const matchesStatus = filterStatus === "all" || fb.status === filterStatus;
     const matchesBranch =
-      branchFilter === "all" || fb.gymRoomId === branchFilter;
+      effectiveBranchFilter === "all" || fb.gymRoomId === effectiveBranchFilter;
 
     if (user?.role === "member") {
       return (
@@ -225,9 +231,11 @@ export const FeedbackPage: React.FC = () => {
       );
     }
 
-    // Owner và Manager nhìn thấy tất cả
     return matchesStatus && matchesBranch;
   });
+  const visibleBranches = scopedGymRoomId
+    ? branches.filter((branch) => branch.id === scopedGymRoomId)
+    : branches;
 
   const handleSubmitFeedback = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -242,6 +250,9 @@ export const FeedbackPage: React.FC = () => {
         method: "POST",
         body: JSON.stringify({
           memberId: Number(currentMember.id),
+          gymRoomId: currentMember.gymRoomId
+            ? Number(currentMember.gymRoomId)
+            : undefined,
           title: newFeedback.subject,
           content: newFeedback.message,
           category: newFeedback.category,
@@ -524,18 +535,20 @@ export const FeedbackPage: React.FC = () => {
               >
                 Đã giải quyết
               </button>
-              <select
-                value={branchFilter}
-                onChange={(event) => setBranchFilter(event.target.value)}
-                className="px-4 py-2 border border-gray-300 rounded-lg bg-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="all">Tất cả cơ sở</option>
-                {branches.map((branch) => (
-                  <option key={branch.id} value={branch.id}>
-                    {branch.displayName}
-                  </option>
-                ))}
-              </select>
+              {user?.role !== "member" && (
+                <select
+                  value={scopedGymRoomId ?? branchFilter}
+                  onChange={(event) => setBranchFilter(event.target.value)}
+                  className="px-4 py-2 border border-gray-300 rounded-lg bg-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  {!scopedGymRoomId && <option value="all">Tất cả cơ sở</option>}
+                  {visibleBranches.map((branch) => (
+                    <option key={branch.id} value={branch.id}>
+                      {branch.displayName}
+                    </option>
+                  ))}
+                </select>
+              )}
             </div>
           </div>
 

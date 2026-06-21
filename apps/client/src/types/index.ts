@@ -6,6 +6,10 @@ export interface User {
   email: string;
   name: string;
   role: UserRole;
+  gymRoomId?: string;
+  gymRoomCode?: string;
+  gymRoomName?: string;
+  gymRoomDisplayName?: string;
   avatar?: string;
   createdAt: string;
 }

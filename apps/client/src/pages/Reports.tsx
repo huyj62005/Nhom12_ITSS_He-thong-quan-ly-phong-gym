@@ -23,11 +23,15 @@ import {
   Calendar,
   Download,
 } from "lucide-react";
+import { useAuth } from "../contexts/AuthContext";
+import { getScopedGymRoomId } from "../utils/accessScope";
 
 const API_BASE_URL = "http://localhost:3000";
 
 type ReportMember = {
   id?: number | string;
+  gymRoomId?: number | string;
+  facilityId?: number | string;
   joinDate?: string;
   join_date?: string;
   status?: string;
@@ -45,6 +49,8 @@ type ReportGymPackage = {
 };
 
 type ReportPayment = {
+  gymRoomId?: number | string;
+  facilityId?: number | string;
   amount?: number | string;
   status?: string;
   paidAt?: string;
@@ -53,6 +59,8 @@ type ReportPayment = {
 };
 
 type ReportSchedule = {
+  gymRoomId?: number | string;
+  facilityId?: number | string;
   startTime?: string;
   start_time?: string;
   date?: string;
@@ -60,6 +68,8 @@ type ReportSchedule = {
 };
 
 type ReportEquipment = {
+  gymRoomId?: number | string;
+  facilityId?: number | string;
   status?: string;
   needsMaintenanceSoon?: boolean;
   maintenanceState?: {
@@ -386,6 +396,8 @@ const createReportWorkbook = (rows: [string, string | number][]) => {
 };
 
 export const Reports: React.FC = () => {
+  const { user } = useAuth();
+  const scopedGymRoomId = getScopedGymRoomId(user);
   const [stats, setStats] = useState<ReportStats>(emptyStats);
   const [revenueData, setRevenueData] = useState<RevenueRow[]>([]);
   const [memberPackages, setMemberPackages] = useState<ReportMemberPackage[]>([]);
@@ -421,23 +433,23 @@ export const Reports: React.FC = () => {
 
       if (!isMounted) return;
 
-      const payments =
+      const rawPayments =
         paymentsResult.status === "fulfilled"
           ? toArray<ReportPayment>(paymentsResult.value)
           : [];
-      const members =
+      const rawMembers =
         membersResult.status === "fulfilled"
           ? toArray<ReportMember>(membersResult.value)
           : [];
-      const schedules =
+      const rawSchedules =
         schedulesResult.status === "fulfilled"
           ? toArray<ReportSchedule>(schedulesResult.value)
           : [];
-      const equipment =
+      const rawEquipment =
         equipmentResult.status === "fulfilled"
           ? toArray<ReportEquipment>(equipmentResult.value)
           : [];
-      const packageRows =
+      const rawPackageRows =
         memberPackagesResult.status === "fulfilled"
           ? toArray<ReportMemberPackage>(memberPackagesResult.value)
           : [];
@@ -445,6 +457,23 @@ export const Reports: React.FC = () => {
         gymPackagesResult.status === "fulfilled"
           ? toArray<ReportGymPackage>(gymPackagesResult.value)
           : [];
+      const matchesScope = (item: { gymRoomId?: number | string; facilityId?: number | string }) =>
+        !scopedGymRoomId ||
+        String(item.gymRoomId ?? item.facilityId ?? "") === scopedGymRoomId;
+      const members = rawMembers.filter(matchesScope);
+      const scopedMemberIds = new Set(
+        members.map((member) => String(member.id ?? "")).filter(Boolean),
+      );
+      const payments = rawPayments.filter(matchesScope);
+      const schedules = rawSchedules.filter(matchesScope);
+      const equipment = rawEquipment.filter(matchesScope);
+      const packageRows = scopedGymRoomId
+        ? rawPackageRows.filter((memberPackage) =>
+            scopedMemberIds.has(
+              String(memberPackage.memberId ?? memberPackage.member_id ?? ""),
+            ),
+          )
+        : rawPackageRows;
 
       const today = new Date().toISOString().slice(0, 10);
       const currentMonth = today.slice(0, 7);
@@ -523,7 +552,7 @@ export const Reports: React.FC = () => {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [scopedGymRoomId]);
 
   const handleExportReport = () => {
     const today = new Date().toISOString().slice(0, 10);

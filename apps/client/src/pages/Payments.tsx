@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { Payment, Member } from "../types";
 import { useAuth } from "../contexts/AuthContext";
+import { getScopedBranchFilter, getScopedGymRoomId } from "../utils/accessScope";
 import {
   getPackageDisplayName,
   isValidDisplayPackage,
@@ -83,6 +84,7 @@ type ApiUser = {
   full_name?: string;
   name?: string;
   email?: string;
+  role?: string;
 };
 
 type ApiTrainerProfile = {
@@ -90,12 +92,18 @@ type ApiTrainerProfile = {
   userId?: number | string;
   user_id?: number | string;
   user?: ApiUser;
+  gymRoomId?: number | string;
+  gymRoom?: {
+    id?: number | string;
+  };
 };
 
 type TrainerOption = {
   id: string;
   name: string;
   email: string;
+  role?: string;
+  gymRoomId?: string;
 };
 
 type BranchOption = {
@@ -124,10 +132,13 @@ const mapTrainerOption = (trainer: ApiTrainerProfile): TrainerOption => ({
     trainer.user?.name ??
     "PT",
   email: trainer.user?.email ?? "",
+  role: trainer.user?.role,
+  gymRoomId: String(trainer.gymRoomId ?? trainer.gymRoom?.id ?? ""),
 });
 
 export const Payments: React.FC = () => {
   const { user } = useAuth();
+  const scopedGymRoomId = getScopedGymRoomId(user);
   const {
     members,
     payments,
@@ -200,7 +211,13 @@ export const Payments: React.FC = () => {
                 .map((trainer) =>
                   mapTrainerOption(trainer as ApiTrainerProfile),
                 )
-                .filter((trainer) => trainer.id)
+                .filter(
+                  (trainer) =>
+                    trainer.id &&
+                    trainer.role === "trainer" &&
+                    (!scopedGymRoomId ||
+                      trainer.gymRoomId === scopedGymRoomId),
+                )
             : [],
         );
         const apiBranches =
@@ -228,9 +245,10 @@ export const Payments: React.FC = () => {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [scopedGymRoomId]);
 
   const filteredMembers = members.filter((m) => {
+    if (scopedGymRoomId && m.gymRoomId !== scopedGymRoomId) return false;
     if (!memberSearch.trim()) return true;
     const q = memberSearch.toLowerCase();
     return (
@@ -241,29 +259,44 @@ export const Payments: React.FC = () => {
   });
 
   const filteredPayments = payments.filter((p) => {
+    const effectiveBranchFilter = getScopedBranchFilter(
+      branchFilter,
+      scopedGymRoomId,
+    );
     const matchesSearch =
       p.memberName.toLowerCase().includes(searchTerm.toLowerCase()) ||
       getPaymentPackageName(p.packageName)
         .toLowerCase()
         .includes(searchTerm.toLowerCase());
     const matchesBranch =
-      branchFilter === "all" || p.gymRoomId === branchFilter;
+      effectiveBranchFilter === "all" || p.gymRoomId === effectiveBranchFilter;
     return matchesSearch && matchesBranch;
   });
 
-  const totalRevenue = payments
+  const scopedPayments = payments.filter(
+    (payment) => !scopedGymRoomId || payment.gymRoomId === scopedGymRoomId,
+  );
+  const visibleBranches = scopedGymRoomId
+    ? branches.filter((branch) => branch.id === scopedGymRoomId)
+    : branches;
+
+  const totalRevenue = scopedPayments
     .filter((p) => p.status === "completed")
     .reduce((s, p) => s + p.amount, 0);
-  const completedPaymentCount = payments.filter(
+  const completedPaymentCount = scopedPayments.filter(
     (p) => p.status === "completed",
   ).length;
-  const pendingPaymentCount = payments.filter(
+  const pendingPaymentCount = scopedPayments.filter(
     (p) => p.status === "pending",
   ).length;
-  const failedPaymentCount = payments.filter(
+  const failedPaymentCount = scopedPayments.filter(
     (p) => p.status === "failed",
   ).length;
-  const canApprovePayment = user?.role === "owner";
+  const canApprovePayment = user?.role === "owner" || user?.role === "manager";
+  const getTrainerOptionsForGymRoom = (gymRoomId?: string) =>
+    trainers.filter(
+      (trainer) => !gymRoomId || trainer.gymRoomId === gymRoomId,
+    );
 
   const selectMember = (member: Member) => {
     setSelectedMember(member);
@@ -284,6 +317,12 @@ export const Payments: React.FC = () => {
   const requiresTrainer = selectedPackage?.type === "pt";
   const hasCurrentPackage = Boolean(selectedMember?.currentPackage);
   const isCurrentPackageStillValid = isMemberPackageStillValid(selectedMember);
+  const selectedMemberTrainerOptions = getTrainerOptionsForGymRoom(
+    selectedMember?.gymRoomId,
+  );
+  const approvalTrainerOptions = getTrainerOptionsForGymRoom(
+    approvalPayment?.gymRoomId,
+  );
 
   const resetModal = () => {
     setShowModal(false);
@@ -537,12 +576,12 @@ export const Payments: React.FC = () => {
                 />
               </div>
               <select
-                value={branchFilter}
+                value={scopedGymRoomId ?? branchFilter}
                 onChange={(event) => setBranchFilter(event.target.value)}
                 className="px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-white min-w-[190px]"
               >
-                <option value="all">Tất cả cơ sở</option>
-                {branches.map((branch) => (
+                {!scopedGymRoomId && <option value="all">Tất cả cơ sở</option>}
+                {visibleBranches.map((branch) => (
                   <option key={branch.id} value={branch.id}>
                     {branch.displayName}
                   </option>
@@ -1020,7 +1059,7 @@ export const Payments: React.FC = () => {
                     required
                   >
                     <option value="">Chọn PT cho hội viên</option>
-                    {trainers.map((trainer) => (
+                    {selectedMemberTrainerOptions.map((trainer) => (
                       <option key={trainer.id} value={trainer.id}>
                         {trainer.name}
                         {trainer.email ? ` - ${trainer.email}` : ""}
@@ -1181,7 +1220,7 @@ export const Payments: React.FC = () => {
                   required
                 >
                   <option value="">Chọn PT cho hội viên</option>
-                  {trainers.map((trainer) => (
+                  {approvalTrainerOptions.map((trainer) => (
                     <option key={trainer.id} value={trainer.id}>
                       {trainer.name}
                       {trainer.email ? ` - ${trainer.email}` : ""}

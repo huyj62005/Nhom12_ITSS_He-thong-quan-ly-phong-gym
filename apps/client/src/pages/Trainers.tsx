@@ -12,6 +12,7 @@ import {
   X,
 } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
+import { getScopedBranchFilter, getScopedGymRoomId } from "../utils/accessScope";
 
 type StaffType = "manager" | "trainer";
 type StaffStatus = "active" | "inactive";
@@ -202,6 +203,7 @@ const inputClass =
 export const Trainers: React.FC = () => {
   const { user } = useAuth();
   const isManager = user?.role === "manager";
+  const scopedGymRoomId = getScopedGymRoomId(user);
   const [staff, setStaff] = useState<StaffMember[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [staffFilter, setStaffFilter] = useState<StaffFilter>("all");
@@ -270,15 +272,27 @@ export const Trainers: React.FC = () => {
       .toLowerCase()
       .includes(searchTerm.trim().toLowerCase());
     const matchesType = staffFilter === "all" || item.staffType === staffFilter;
+    const effectiveBranchFilter = getScopedBranchFilter(
+      branchFilter,
+      scopedGymRoomId,
+    );
     const matchesBranch =
-      branchFilter === "all" || item.gymRoomId === branchFilter;
+      effectiveBranchFilter === "all" ||
+      item.gymRoomId === effectiveBranchFilter;
 
     return matchesSearch && matchesType && matchesBranch;
   });
+  const visibleActiveGymRooms = scopedGymRoomId
+    ? activeGymRooms.filter((room) => room.id === scopedGymRoomId)
+    : activeGymRooms;
 
   const openAddModal = () => {
     setEditingStaff(null);
-    setFormData({ ...emptyForm, staffType: "trainer" });
+    setFormData({
+      ...emptyForm,
+      staffType: "trainer",
+      gymRoomId: scopedGymRoomId ?? "",
+    });
     setShowFormModal(true);
   };
 
@@ -297,7 +311,7 @@ export const Trainers: React.FC = () => {
       experience: item.experience,
       description: item.description,
       status: item.status,
-      gymRoomId: item.gymRoomId,
+      gymRoomId: scopedGymRoomId ?? item.gymRoomId,
       gymRoomName: item.gymRoomName,
       avatar: item.avatar || "",
       avatarUrl: item.avatar || "",
@@ -337,7 +351,8 @@ export const Trainers: React.FC = () => {
         formData.name || "staff",
       )}`;
     const staffType: StaffType = isManager ? "trainer" : formData.staffType;
-    if (!formData.gymRoomId) {
+    const gymRoomId = scopedGymRoomId ?? formData.gymRoomId;
+    if (!gymRoomId) {
       window.alert("Vui lòng chọn cơ sở làm việc cho nhân sự!");
       return;
     }
@@ -351,6 +366,7 @@ export const Trainers: React.FC = () => {
             body: JSON.stringify(
               toApiTrainerPayload({
                 ...formData,
+                gymRoomId,
                 staffType,
                 userId: editingStaff.userId,
               }),
@@ -376,7 +392,9 @@ export const Trainers: React.FC = () => {
       } else {
         const apiStaff = await requestJson<unknown>("/trainer-profiles", {
           method: "POST",
-          body: JSON.stringify(toApiTrainerPayload({ ...formData, staffType })),
+          body: JSON.stringify(
+            toApiTrainerPayload({ ...formData, gymRoomId, staffType }),
+          ),
         });
         if (typeof apiStaff !== "object" || apiStaff === null) {
           throw new Error("API /trainer-profiles không trả về dữ liệu hợp lệ");
@@ -464,12 +482,12 @@ export const Trainers: React.FC = () => {
               <option value="trainer">PT/HLV</option>
             </select>
             <select
-              value={branchFilter}
+              value={scopedGymRoomId ?? branchFilter}
               onChange={(event) => setBranchFilter(event.target.value)}
               className="px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-white min-w-[190px]"
             >
-              <option value="all">Tất cả cơ sở</option>
-              {activeGymRooms.map((room) => (
+              {!scopedGymRoomId && <option value="all">Tất cả cơ sở</option>}
+              {visibleActiveGymRooms.map((room) => (
                 <option key={room.id} value={room.id}>
                   {room.displayName}
                 </option>
@@ -740,7 +758,7 @@ export const Trainers: React.FC = () => {
                 <FormField label="Cơ sở" required>
                   <select
                     required
-                    value={formData.gymRoomId}
+                    value={scopedGymRoomId ?? formData.gymRoomId}
                     onChange={(event) =>
                       setFormData((current) => ({
                         ...current,
@@ -753,8 +771,10 @@ export const Trainers: React.FC = () => {
                     }
                     className={inputClass}
                   >
-                    <option value="">Chưa gán cơ sở</option>
-                    {activeGymRooms.map((room) => (
+                    {!scopedGymRoomId && (
+                      <option value="">Chưa gán cơ sở</option>
+                    )}
+                    {visibleActiveGymRooms.map((room) => (
                       <option key={room.id} value={room.id}>
                         {room.displayName}
                       </option>

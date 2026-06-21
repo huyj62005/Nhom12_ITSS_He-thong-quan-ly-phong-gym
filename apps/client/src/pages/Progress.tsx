@@ -21,6 +21,7 @@ import {
 import { DashboardLayout } from "../components/DashboardLayout";
 import { useAuth } from "../contexts/AuthContext";
 import { useGymData } from "../contexts/GymDataContext";
+import { isMemberPackageStillValid } from "../utils/membership";
 
 const API_BASE_URL = "http://localhost:3000";
 
@@ -147,6 +148,11 @@ export const Progress: React.FC = () => {
   const memberHasActivePtPackage =
     currentMember?.hasActivePtPackage === true &&
     Boolean(currentMember.trainerId);
+  const memberHasActiveNonPtPackage =
+    isMemberPackageStillValid(currentMember) &&
+    currentMember?.currentPackage?.type !== "pt";
+  const isSimpleMemberProgress =
+    isMember && !memberHasActivePtPackage && memberHasActiveNonPtPackage;
   const visibleMembers = isTrainer
     ? members.filter(
         (member) =>
@@ -154,7 +160,8 @@ export const Progress: React.FC = () => {
           member.trainerId === user?.id,
       )
     : isMember
-      ? memberHasActivePtPackage && currentMember
+      ? (memberHasActivePtPackage || memberHasActiveNonPtPackage) &&
+        currentMember
         ? [currentMember]
         : []
       : members;
@@ -192,6 +199,9 @@ export const Progress: React.FC = () => {
     .filter((item) => item.memberId === selectedMember)
     .sort((a, b) => a.date.localeCompare(b.date));
   const latestProgress = memberProgress.at(-1);
+  const latestWeightProgress = memberProgress
+    .filter((item) => item.weight > 0)
+    .at(-1);
   const firstProgress = memberProgress[0];
   const chartData = useMemo(
     () =>
@@ -205,13 +215,22 @@ export const Progress: React.FC = () => {
   );
 
   const openProgressEditor = () => {
-    setEditingProgressId(latestProgress?.id ?? "");
+    const today = new Date().toISOString().slice(0, 10);
+    const defaultProgress = isSimpleMemberProgress
+      ? memberProgress.find((item) => item.date === today)
+      : latestProgress;
+
+    setEditingProgressId(defaultProgress?.id ?? "");
     setProgressForm({
-      date: latestProgress?.date || new Date().toISOString().slice(0, 10),
-      weight: latestProgress ? String(latestProgress.weight) : "",
-      bodyFat: latestProgress ? String(latestProgress.bodyFat) : "",
-      muscleMass: latestProgress ? String(latestProgress.muscleMass) : "",
-      notes: latestProgress?.notes ?? "",
+      date: defaultProgress?.date || today,
+      weight: defaultProgress
+        ? String(defaultProgress.weight || "")
+        : isSimpleMemberProgress && latestWeightProgress
+          ? String(latestWeightProgress.weight)
+          : "",
+      bodyFat: defaultProgress ? String(defaultProgress.bodyFat) : "",
+      muscleMass: defaultProgress ? String(defaultProgress.muscleMass) : "",
+      notes: defaultProgress?.notes ?? "",
     });
     setShowEditModal(true);
   };
@@ -232,7 +251,7 @@ export const Progress: React.FC = () => {
 
   const saveProgress = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!selectedMember || !isTrainer) return;
+    if (!selectedMember || (!isTrainer && !isSimpleMemberProgress)) return;
 
     setIsSavingProgress(true);
     try {
@@ -244,9 +263,15 @@ export const Progress: React.FC = () => {
         memberId: Number(selectedMember),
         recordedAt: `${progressForm.date}T00:00:00`,
         date: progressForm.date,
-        bodyWeight: Number(progressForm.weight || 0),
-        bodyFatPercent: Number(progressForm.bodyFat || 0),
-        muscleMass: Number(progressForm.muscleMass || 0),
+        bodyWeight: isSimpleMemberProgress
+          ? Number(progressForm.weight || latestWeightProgress?.weight || 0)
+          : Number(progressForm.weight || 0),
+        bodyFatPercent: isSimpleMemberProgress
+          ? Number(latestProgress?.bodyFat ?? 0)
+          : Number(progressForm.bodyFat || 0),
+        muscleMass: isSimpleMemberProgress
+          ? Number(latestProgress?.muscleMass ?? 0)
+          : Number(progressForm.muscleMass || 0),
         evaluation: progressForm.notes,
       };
       const savedProgress = await requestJson<unknown>(
@@ -335,13 +360,126 @@ export const Progress: React.FC = () => {
           </div>
         )}
 
-        {isMember && !memberHasActivePtPackage && (
+        {isMember && !memberHasActivePtPackage && !memberHasActiveNonPtPackage && (
           <div className="bg-white rounded-lg shadow p-6 text-sm text-gray-500">
             Bạn cần đăng ký Gói PT để sử dụng chức năng theo dõi tiến độ tập luyện.
           </div>
         )}
 
-        {visibleMembers.length > 0 && (
+        {isSimpleMemberProgress && selectedMember && (
+          <>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <StatCard
+                label="Cân nặng hiện tại"
+                value={
+                  latestWeightProgress?.weight
+                    ? `${latestWeightProgress.weight} kg`
+                    : "-"
+                }
+                hint="Theo bản ghi mới nhất"
+                icon={<Weight className="text-blue-600" size={24} />}
+              />
+            </div>
+
+            <div className="bg-white rounded-lg shadow p-6">
+              <h3 className="text-lg font-bold text-gray-900 mb-4">
+                Lịch sử cân nặng
+              </h3>
+              {memberProgress.filter((item) => item.weight > 0).length ===
+              0 ? (
+                <p className="text-sm text-gray-500">
+                  Chưa có dữ liệu cân nặng.
+                </p>
+              ) : (
+                <div className="space-y-3">
+                  {memberProgress
+                    .filter((item) => item.weight > 0)
+                    .slice()
+                    .sort((a, b) => b.date.localeCompare(a.date))
+                    .map((item) => (
+                      <div
+                        key={`weight-${item.id}`}
+                        className="flex items-center justify-between rounded-lg border border-gray-200 px-4 py-3"
+                      >
+                        <span className="text-sm text-gray-600">
+                          {new Date(item.date).toLocaleDateString("vi-VN")}
+                        </span>
+                        <span className="font-semibold text-gray-900">
+                          {item.weight} kg
+                        </span>
+                      </div>
+                    ))}
+                </div>
+              )}
+            </div>
+
+            <div className="bg-white rounded-lg shadow p-6">
+              <div className="flex items-center justify-between gap-3 mb-4">
+                <h3 className="text-lg font-bold text-gray-900">
+                  Lịch sử tập luyện
+                </h3>
+                <button
+                  type="button"
+                  onClick={openProgressEditor}
+                  className="inline-flex items-center gap-2 rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+                >
+                  <Edit3 size={16} />
+                  Chỉnh sửa
+                </button>
+              </div>
+              <div className="space-y-4">
+                {memberProgress.length === 0 ? (
+                  <p className="text-sm text-gray-500">
+                    Chưa có lịch sử tập luyện. Hãy ghi lại buổi tập đầu tiên của bạn.
+                  </p>
+                ) : (
+                  memberProgress
+                    .slice()
+                    .sort((a, b) => b.date.localeCompare(a.date))
+                    .map((session) => (
+                      <div
+                        key={session.id}
+                        className="border border-gray-200 rounded-lg p-4"
+                      >
+                        <div className="flex items-start justify-between gap-4">
+                          <div>
+                            <p className="font-medium text-gray-900">
+                              {new Date(session.date).toLocaleDateString(
+                                "vi-VN",
+                              )}
+                            </p>
+                            <p className="mt-1 whitespace-pre-wrap text-sm text-gray-600">
+                              {session.notes || "Chưa có ghi chú bài tập."}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingProgressId(session.id);
+                              setProgressForm({
+                                date: session.date,
+                                weight: String(session.weight || ""),
+                                bodyFat: String(session.bodyFat || ""),
+                                muscleMass: String(session.muscleMass || ""),
+                                notes: session.notes,
+                              });
+                              setShowEditModal(true);
+                            }}
+                            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50"
+                            title="Chỉnh sửa buổi tập"
+                          >
+                            <Edit3 size={16} />
+                          </button>
+                        </div>
+                      </div>
+                    ))
+                )}
+              </div>
+            </div>
+          </>
+        )}
+
+        {!isSimpleMemberProgress && visibleMembers.length > 0 && (
           <>
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
           <StatCard
@@ -428,12 +566,14 @@ export const Progress: React.FC = () => {
         )}
       </div>
 
-      {showEditModal && isTrainer && (
+      {showEditModal && (isTrainer || isSimpleMemberProgress) && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg p-6 max-w-lg w-full">
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-xl font-bold text-gray-900">
-                Chỉnh sửa tiến độ tập luyện
+                {isSimpleMemberProgress
+                  ? "Ghi lại buổi tập"
+                  : "Chỉnh sửa tiến độ tập luyện"}
               </h2>
               <button
                 type="button"
@@ -445,7 +585,9 @@ export const Progress: React.FC = () => {
             </div>
 
             <form onSubmit={saveProgress} className="space-y-4">
-              <FormField label="Ngày đánh dấu">
+              <FormField
+                label={isSimpleMemberProgress ? "Thời gian" : "Ngày đánh dấu"}
+              >
                 <input
                   required
                   type="date"
@@ -455,6 +597,26 @@ export const Progress: React.FC = () => {
                 />
               </FormField>
 
+              {isSimpleMemberProgress && (
+                <FormField label="Cân nặng hiện tại (kg)">
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.1"
+                    value={progressForm.weight}
+                    onChange={(event) =>
+                      setProgressForm((current) => ({
+                        ...current,
+                        weight: event.target.value,
+                      }))
+                    }
+                    className={inputClass}
+                    placeholder="Ví dụ: 68.5"
+                  />
+                </FormField>
+              )}
+
+              {!isSimpleMemberProgress && (
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <FormField label="Cân nặng (kg)">
                   <input
@@ -504,8 +666,11 @@ export const Progress: React.FC = () => {
                   />
                 </FormField>
               </div>
+              )}
 
-              <FormField label="Ghi chú">
+              <FormField
+                label={isSimpleMemberProgress ? "Bài tập đã tập" : "Ghi chú"}
+              >
                 <textarea
                   value={progressForm.notes}
                   onChange={(event) =>
@@ -515,7 +680,12 @@ export const Progress: React.FC = () => {
                     }))
                   }
                   className={inputClass}
-                  rows={3}
+                  rows={isSimpleMemberProgress ? 6 : 3}
+                  placeholder={
+                    isSimpleMemberProgress
+                      ? "Ví dụ: Chạy bộ 20 phút, đẩy ngực 3 hiệp, squat 4 hiệp..."
+                      : undefined
+                  }
                 />
               </FormField>
 

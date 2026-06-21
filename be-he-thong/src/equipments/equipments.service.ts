@@ -41,9 +41,10 @@ export class EquipmentsService {
       await this.applyGymRoom(payload, createEquipmentDto);
       const equipment = this.equipmentsRepository.create(payload);
       const savedEquipment = await this.equipmentsRepository.save(equipment);
-      await this.notifyEquipmentAttention(savedEquipment);
+      const fullEquipment = await this.findEquipmentOrFail(savedEquipment.id);
+      await this.notifyEquipmentAttention(fullEquipment);
 
-      return this.toEquipmentResponse(savedEquipment);
+      return this.toEquipmentResponse(fullEquipment);
     } catch (error) {
       this.logAndThrow('create', error);
     }
@@ -95,8 +96,9 @@ export class EquipmentsService {
       );
 
       const savedEquipment = await this.equipmentsRepository.save(equipment);
-      await this.notifyEquipmentAttention(savedEquipment);
-      return this.toEquipmentResponse(savedEquipment);
+      const fullEquipment = await this.findEquipmentOrFail(savedEquipment.id);
+      await this.notifyEquipmentAttention(fullEquipment);
+      return this.toEquipmentResponse(fullEquipment);
     } catch (error) {
       this.logAndThrow('update', error);
     }

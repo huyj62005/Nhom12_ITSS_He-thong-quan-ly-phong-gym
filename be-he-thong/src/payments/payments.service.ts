@@ -376,8 +376,10 @@ export class PaymentsService {
     const memberName = payment.member?.fullName ?? 'Hội viên';
     const packageName = this.getPackageName(payment.memberPackage);
 
-    await this.notificationsService.createForRoles(
+    const gymRoomId = payment.gymRoom?.id ?? payment.member?.gymRoom?.id;
+    await this.notificationsService.createForRolesInGymRoom(
       [UserRole.OWNER, UserRole.MANAGER],
+      gymRoomId,
       {
         title: 'Đăng ký gói tập mới',
         message: `${memberName} vừa đăng ký ${packageName}.`,

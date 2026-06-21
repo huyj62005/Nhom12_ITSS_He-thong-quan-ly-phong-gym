@@ -37,6 +37,14 @@ export class UsersService {
       where: {
         email: normalizedEmail,
       },
+      relations: {
+        trainerProfile: {
+          gymRoom: true,
+        },
+        member: {
+          gymRoom: true,
+        },
+      },
     });
 
     if (!user || user.password !== normalizedPassword) {
@@ -96,6 +104,14 @@ export class UsersService {
       where: {
         id,
       },
+      relations: {
+        trainerProfile: {
+          gymRoom: true,
+        },
+        member: {
+          gymRoom: true,
+        },
+      },
     });
 
     if (!user) {
@@ -106,12 +122,21 @@ export class UsersService {
   }
 
   private toUserResponse(user: User) {
+    const gymRoom = user.trainerProfile?.gymRoom ?? user.member?.gymRoom;
+
     return {
       id: String(user.id),
       email: user.email ?? '',
       name: user.fullName ?? '',
       fullName: user.fullName ?? '',
       role: user.role ?? 'member',
+      gymRoomId: gymRoom?.id ? String(gymRoom.id) : '',
+      facilityId: gymRoom?.id ? String(gymRoom.id) : '',
+      gymRoomCode: gymRoom?.code ?? '',
+      gymRoomName: gymRoom?.name ?? '',
+      gymRoomDisplayName: gymRoom
+        ? `${gymRoom.code ?? `CS${gymRoom.id}`} - ${gymRoom.name}`
+        : '',
       phone: user.phone ?? '',
       status: user.status ?? UserStatus.ACTIVE,
       createdAt:

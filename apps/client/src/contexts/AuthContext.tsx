@@ -7,6 +7,8 @@ const API_BASE_URL = "http://localhost:3000";
 type ApiUser = Partial<User> & {
   fullName?: string;
   full_name?: string;
+  gymRoomId?: number | string;
+  facilityId?: number | string;
 };
 
 const normalizeApiRole = (role?: string): User["role"] => {
@@ -45,6 +47,13 @@ const mapApiUser = (apiUser: ApiUser): User => ({
   email: apiUser.email ?? "",
   name: apiUser.name ?? apiUser.fullName ?? apiUser.full_name ?? "",
   role: normalizeApiRole(apiUser.role),
+  gymRoomId:
+    apiUser.gymRoomId !== undefined || apiUser.facilityId !== undefined
+      ? String(apiUser.gymRoomId ?? apiUser.facilityId ?? "")
+      : undefined,
+  gymRoomCode: apiUser.gymRoomCode,
+  gymRoomName: apiUser.gymRoomName,
+  gymRoomDisplayName: apiUser.gymRoomDisplayName,
   avatar:
     apiUser.avatar ??
     `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(

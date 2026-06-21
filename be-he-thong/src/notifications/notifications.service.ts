@@ -87,6 +87,41 @@ export class NotificationsService {
     );
   }
 
+  async createForRolesInGymRoom(
+    roles: UserRole[],
+    gymRoomId: number | undefined,
+    payload: Partial<CreateNotificationDto>,
+  ) {
+    if (!Number.isInteger(gymRoomId) || !gymRoomId || gymRoomId <= 0) {
+      return [];
+    }
+
+    const users = await this.usersRepository.find({
+      where: {
+        role: In(roles),
+      },
+      relations: {
+        trainerProfile: {
+          gymRoom: true,
+        },
+        member: {
+          gymRoom: true,
+        },
+      },
+    });
+
+    return this.createForUsers(
+      users
+        .filter((user) => {
+          const userGymRoomId =
+            user.trainerProfile?.gymRoom?.id ?? user.member?.gymRoom?.id;
+          return userGymRoomId === gymRoomId;
+        })
+        .map((user) => user.id),
+      payload,
+    );
+  }
+
   async findAll() {
     const notifications = await this.notificationsRepository.find({
       relations: { user: true },
