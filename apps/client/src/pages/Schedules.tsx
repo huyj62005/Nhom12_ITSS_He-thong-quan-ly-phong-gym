@@ -342,9 +342,7 @@ export const Schedules: React.FC = () => {
   const currentTrainerIds = [user?.id, getTrainerUserId(currentTrainer)].filter(
     Boolean,
   );
-  const currentMemberIds = [currentMember?.id, currentMember?.userId].filter(
-    Boolean,
-  );
+  const currentMemberId = currentMember?.id ? String(currentMember.id) : "";
   const memberHasAssignedPt =
     currentMember?.hasActivePtPackage === true &&
     Boolean(currentMember.trainerId);
@@ -499,7 +497,7 @@ export const Schedules: React.FC = () => {
       )
     : isMember
       ? schedules.filter((schedule) =>
-          currentMemberIds.includes(schedule.memberId),
+          currentMemberId ? String(schedule.memberId) === currentMemberId : false,
         )
       : schedules.filter(
           (schedule) =>

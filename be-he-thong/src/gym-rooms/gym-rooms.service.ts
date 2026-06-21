@@ -405,23 +405,39 @@ export class GymRoomsService {
       activeGymRooms.map((gymRoom) => [gymRoom.id, 0]),
     );
     const changedMembers: Member[] = [];
+    members.forEach((member) => {
+      if (member.gymRoom?.id && memberCounts.has(member.gymRoom.id)) {
+        memberCounts.set(
+          member.gymRoom.id,
+          (memberCounts.get(member.gymRoom.id) ?? 0) + 1,
+        );
+      }
+    });
 
     members.forEach((member) => {
       const fixedBranch = fixedMemberBranch.get(member.id);
       if (!fixedBranch) return;
 
-      memberCounts.set(
-        fixedBranch.id,
-        (memberCounts.get(fixedBranch.id) ?? 0) + 1,
-      );
       if (member.gymRoom?.id !== fixedBranch.id) {
+        if (member.gymRoom?.id && memberCounts.has(member.gymRoom.id)) {
+          memberCounts.set(
+            member.gymRoom.id,
+            Math.max((memberCounts.get(member.gymRoom.id) ?? 0) - 1, 0),
+          );
+        }
+        memberCounts.set(
+          fixedBranch.id,
+          (memberCounts.get(fixedBranch.id) ?? 0) + 1,
+        );
         member.gymRoom = fixedBranch;
         changedMembers.push(member);
       }
     });
 
     members
-      .filter((member) => !fixedMemberBranch.has(member.id))
+      .filter(
+        (member) => !fixedMemberBranch.has(member.id) && !member.gymRoom?.id,
+      )
       .forEach((member) => {
         const targetGymRoom = activeGymRooms.reduce((lowest, candidate) => {
           const lowestCount = memberCounts.get(lowest.id) ?? 0;
